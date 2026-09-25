@@ -114,7 +114,7 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
     /* These pairings are counter-intuitive (400054 is INVALID, 400068 is EXPIRED)
      * and were wrong in an earlier revision, which would have published a wrong
      * verdict to every user. Pin them. */
-    for (const [errCode, expected] of [[0, 'success'], [400054, 'invalid'], [400068, 'expired'], [400073, 'gift_bug']]) {
+    for (const [errCode, expected] of [[0, 'success'], [400054, 'invalid'], [400068, 'expired'], [400070, 'expired'], [400073, 'gift_bug']]) {
       const probe = await post('/submit', { code: 'DFMAP' + errCode, err_code: errCode }, asClient('10.0.9.' + (errCode % 200)));
       check(`err_code ${errCode} maps to ${expected}`,
         probe.json && probe.json.verdict === expected,

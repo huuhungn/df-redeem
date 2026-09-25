@@ -14,6 +14,9 @@ var DFRedeemGarena = (function dfRedeemGarenaModule(root) {
   400054: { status: 'INVALID', label: 'Không hợp lệ', detail: 'Code không tồn tại hoặc sai ký tự.' },
   400067: { status: 'LIMIT_REACHED', label: 'Đã nhận nhóm này', detail: 'Tài khoản đã đạt giới hạn nhận của nhóm code này.' },
   400068: { status: 'EXPIRED', label: 'Hết hạn', detail: 'Code đã quá thời hạn sử dụng.' },
+  /* Observed live on redeem.df.garena.sg: "The end time has passed". Distinct
+   * code from 400068 but the same outcome — the campaign window closed. */
+  400070: { status: 'EXPIRED', label: 'Hết hạn', detail: 'Đợt phát code đã kết thúc.' },
   400073: { status: 'PRESENT_ERROR', label: 'Lỗi quà', detail: 'Phần quà của code đang lỗi phía Garena.' },
   400069: { status: 'USED', label: 'Đã dùng', detail: 'Code đã được sử dụng.' },
   400055: { status: 'INVALID', label: 'Không hợp lệ', detail: 'Code không áp dụng cho tài khoản/khu vực này.' },

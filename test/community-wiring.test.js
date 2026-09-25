@@ -73,5 +73,36 @@ check('extension routes community calls through the service worker',
   /communityPull/.test(bg),
   'background.js must handle communityPull');
 
+/* ── every Garena error code must be classified by the worker ───────────── */
+/* 400070 ("The end time has passed") existed in neither table, so a live run
+ * showed "Mã lỗi chưa biết" and the verdict was never publishable. Any code
+ * garena.js knows about must land in exactly one worker bucket. */
+const garenaSrc = read('src/core/garena.js');
+const verdictSrc = read('worker/src/verdicts.js');
+
+const knownCodes = [...garenaSrc.matchAll(/^\s{2}(\d{2,6}):\s*\{\s*status:/gm)].map((m) => Number(m[1]));
+check('garena.js error table was parsed', knownCodes.length >= 12, 'found ' + knownCodes.length);
+
+const bucket = (code) => {
+  const inVerdict = new RegExp('\\[' + code + ',\\s*\'').test(verdictSrc);
+  const perAccount = new RegExp('PER_ACCOUNT = new Set\\(\\[[^\\]]*\\b' + code + '\\b').test(verdictSrc);
+  const transient = new RegExp('TRANSIENT = new Set\\(\\[[^\\]]*\\b' + code + '\\b').test(verdictSrc);
+  return [inVerdict && 'publishable', perAccount && 'per-account', transient && 'transient'].filter(Boolean);
+};
+
+const unclassified = knownCodes.filter((c) => bucket(c).length === 0);
+const doubleBooked = knownCodes.filter((c) => bucket(c).length > 1);
+
+check('every garena.js error code is classified by the worker',
+  unclassified.length === 0,
+  'unclassified: ' + unclassified.join(','));
+check('no error code sits in two worker buckets',
+  doubleBooked.length === 0,
+  'double-booked: ' + doubleBooked.join(','));
+
+/* The code the live run actually returned, pinned by number. */
+check('400070 is treated as expired',
+  /\[400070, 'expired'\]/.test(verdictSrc) && /400070: \{ status: 'EXPIRED'/.test(garenaSrc));
+
 console.log(`\n${passed} passed, ${failed} failed, ${passed + failed} total`);
 process.exit(failed === 0 ? 0 : 1);

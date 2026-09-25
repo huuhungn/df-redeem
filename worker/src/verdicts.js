@@ -20,6 +20,9 @@ export const VERDICT_BY_ERR = new Map([
   [0, 'success'],
   [400054, 'invalid'],
   [400068, 'expired'],
+  /* Seen live: "The end time has passed" — the campaign ended, so this is true
+   * for everyone, not just the reporting account. */
+  [400070, 'expired'],
   [400073, 'gift_bug'],
 ]);
 
