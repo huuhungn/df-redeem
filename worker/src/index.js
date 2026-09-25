@@ -313,7 +313,25 @@ export default {
       /* Never surface an internal message to a client: it can carry binding names
        * or secret-shaped strings. Log it and answer generically. */
       console.error('worker error', error && error.stack || error);
-      response = json({ ok: false, error: 'internal error' }, { status: 500 });
+
+      /* One exception: a KV daily-write-quota exhaustion is an operational state,
+       * not a bug, and it is indistinguishable from a broken vault at the client.
+       * It surfaced as a bare 500 and cost real debugging time, so name it and
+       * answer 503 with Retry-After pointing at the UTC reset. */
+      const message = String((error && error.message) || '');
+      if (/limit exceeded for the day|KV (?:put|write).*limit/i.test(message)) {
+        const now = new Date();
+        const reset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+        const retryAfter = Math.max(1, Math.ceil((reset - now.getTime()) / 1000));
+        response = json({
+          ok: false,
+          error: 'vault write quota for today is used up',
+          retry_after_seconds: retryAfter,
+          resets_at: new Date(reset).toISOString(),
+        }, { status: 503 }, { 'Retry-After': String(retryAfter) });
+      } else {
+        response = json({ ok: false, error: 'internal error' }, { status: 500 });
+      }
     }
 
     const headers = new Headers(response.headers);

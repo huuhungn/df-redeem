@@ -147,6 +147,43 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('a broker outage does not throw', result.ok === false && result.failed === 1, JSON.stringify(result));
   }
 
+  {
+    /* A quota-exhausted broker answers 503 with a reason; showing only the status
+     * code made an operational limit look like a broken vault. */
+    const service = DFRedeemSync.createSyncService({
+      chromeApi: fakeChrome({ communityReportUrl: 'https://broker.test/submit' }),
+      fetchFn: async () => ({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          ok: false,
+          error: 'vault write quota for today is used up',
+          resets_at: '2026-09-27T00:00:00.000Z',
+        }),
+      }),
+    });
+    const result = await service.reportOutcomes([{ code: 'good1code', status: 'success', err_code: 0 }]);
+    check('a quota refusal explains itself instead of showing a bare status',
+      /quota/i.test(result.error || '') && /503/.test(result.error || ''), JSON.stringify(result));
+    check('a quota refusal is marked retriable',
+      result.retriable === true, JSON.stringify(result));
+  }
+
+  {
+    /* A non-JSON error body must not mask the status code. */
+    const service = DFRedeemSync.createSyncService({
+      chromeApi: fakeChrome({ communityReportUrl: 'https://broker.test/submit' }),
+      fetchFn: async () => ({
+        ok: false,
+        status: 500,
+        json: async () => { throw new Error('not json'); },
+      }),
+    });
+    const result = await service.reportOutcomes([{ code: 'good1code', status: 'success', err_code: 0 }]);
+    check('an unparseable error body still reports the status',
+      result.error === 'HTTP 500' && result.retriable === false, JSON.stringify(result));
+  }
+
   /* ---- mergeCommunityCodes -------------------------------------------- */
   {
     const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });

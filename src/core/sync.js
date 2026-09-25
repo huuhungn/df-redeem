@@ -361,7 +361,28 @@ const DFRedeemSync = (function attachSync(root) {
           }),
         });
         if (!response || !response.ok) {
-          return { ok: false, sent: 0, failed: shareable.length, error: `HTTP ${response && response.status || 0}` };
+          /* The broker explains an exhausted daily write quota in the body; a bare
+           * "HTTP 503" in the drawer looks like a broken vault and sends people
+           * hunting for a bug that isn't there. Surface its reason instead. */
+          let detail = '';
+          try {
+            const body = await response.json();
+            if (body && body.error) detail = String(body.error);
+            if (body && body.resets_at) {
+              const at = new Date(body.resets_at);
+              if (!Number.isNaN(at.getTime())) {
+                detail += ` (thử lại sau ${at.getUTCHours().toString().padStart(2, '0')}:00 UTC)`;
+              }
+            }
+          } catch { /* non-JSON body: fall back to the status code alone */ }
+          const status = (response && response.status) || 0;
+          return {
+            ok: false,
+            sent: 0,
+            failed: shareable.length,
+            error: detail ? `${detail} [HTTP ${status}]` : `HTTP ${status}`,
+            retriable: status === 429 || status === 503,
+          };
         }
         const doc = await response.json();
         const rejected = Number(doc.rejected || 0);
