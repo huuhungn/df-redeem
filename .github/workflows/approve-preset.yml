@@ -1,0 +1,91 @@
+name: approve-preset
+
+# A maintainer labels a preset-submission issue `approved`; this parses the issue
+# form, appends the preset, validates, commits, and closes the issue.
+#
+# Deliberately NOT triggered by issue creation: presets are human-gated.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: approve-preset
+  cancel-in-progress: false
+
+jobs:
+  add:
+    if: github.event.label.name == 'approved' && contains(github.event.issue.labels.*.name, 'preset-submission')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Only an account with write access may approve. A drive-by label from a
+      # triager without push rights must not reach the data files.
+      - name: Verify the approver can write to this repo
+        id: perm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LEVEL=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.event.sender.login }}/permission" --jq .permission 2>/dev/null || echo none)
+          echo "approver ${{ github.event.sender.login }} has: $LEVEL"
+          case "$LEVEL" in
+            admin|write|maintain) echo "ok=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "ok=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Reject an unauthorised approval
+        if: steps.perm.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --body "Only a maintainer with write access can approve a preset. Removing the label."
+          gh issue edit "${{ github.event.issue.number }}" --remove-label approved
+          exit 1
+
+      - name: Parse the issue form
+        id: parse
+        env:
+          # Through env, never inlined into the script: an issue body is attacker-controlled.
+          BODY: ${{ github.event.issue.body }}
+        run: node tools/parse-preset-issue.js >> "$GITHUB_OUTPUT"
+
+      - name: Append the preset
+        id: add
+        run: |
+          node tools/add-preset.js \
+            --code "${{ steps.parse.outputs.code }}" \
+            --weapon "${{ steps.parse.outputs.weapon }}" \
+            --mode "${{ steps.parse.outputs.mode }}" \
+            --credit "${{ steps.parse.outputs.credit }}" | tee add.log
+          grep -q 'CHANGED=true' add.log && echo "changed=true" >> "$GITHUB_OUTPUT" || echo "changed=false" >> "$GITHUB_OUTPUT"
+          rm -f add.log
+
+      - name: Validate before committing
+        if: steps.add.outputs.changed == 'true'
+        run: node tools/validate-data.js
+
+      - name: Commit
+        if: steps.add.outputs.changed == 'true'
+        run: |
+          git config user.name 'df-redeem-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/presets.json
+          git diff --cached --quiet && exit 0
+          git commit -m "data: add approved preset from #${{ github.event.issue.number }}"
+          git push
+
+      - name: Close the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --body "Merged into \`data/presets.json\`. It reaches clients on their next sync. Thanks!"
+          gh issue close "${{ github.event.issue.number }}"

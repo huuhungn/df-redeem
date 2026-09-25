@@ -1,0 +1,298 @@
+/* components.css — the view layer of the design system.
+ *
+ * theme.css owns tokens and primitives; this file owns every class the view
+ * renderers in panel.js actually emit. The two are concatenated at build time
+ * into one theme.css, so a class defined here is available on all four
+ * surfaces (drawer shadow root, full page, popup, options).
+ *
+ * Rule of thumb: if panel.js writes a class into markup, it gets a rule here.
+ * A class with no rule silently renders with browser defaults, which on this
+ * dark theme means an unreadable white-on-white control.
+ */
+
+/* ── action buttons (the workhorse; .btn is the formal variant) ─────────── */
+.df .act {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 30px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--raised); color: var(--ink);
+  cursor: pointer; font: 600 11.5px var(--sans); letter-spacing: .01em;
+  transition: border-color .14s, background .14s, color .14s;
+  white-space: nowrap;
+}
+.df .act:hover:not([disabled]) { border-color: var(--primary-dim); background: #16252b; }
+.df .act:active:not([disabled]) { transform: translateY(1px); }
+.df .act[disabled] { opacity: .38; cursor: not-allowed; }
+.df .act.primary { border-color: var(--primary-dim); background: var(--primary); color: #04100e; }
+.df .act.primary:hover:not([disabled]) { background: #4af0d6; border-color: var(--primary); }
+.df .act.danger { border-color: #5c2530; color: var(--danger); }
+.df .act.danger:hover:not([disabled]) { background: #241216; border-color: var(--danger); }
+.df .act.ghost { border-color: transparent; background: transparent; color: var(--ink-dim); }
+.df .act.ghost:hover:not([disabled]) { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.df .act.tiny { min-height: 25px; padding: 0 9px; font-size: 10.5px; }
+.df .btnrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.df .page-acts { display: grid; gap: 6px; }
+
+/* ── cards ─────────────────────────────────────────────────────────────── */
+.df .card {
+  margin-bottom: var(--gap); padding: 13px 14px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.df .card-hd {
+  display: flex; align-items: baseline; gap: 9px;
+  margin: -2px 0 11px; padding-bottom: 9px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.df .card-hd h3 {
+  margin: 0; color: var(--ink);
+  font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+}
+.df .card-hd > :last-child { margin-left: auto; }
+.df .card-hd .muted { font-size: 10.5px; }
+.df .two { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+.df .tight { margin: -4px 0 10px; font-size: 11px; }
+
+/* ── callouts: one shape, three intents ────────────────────────────────── */
+.df .cta, .df .info-box, .df .warn-box {
+  margin-bottom: var(--gap); padding: 11px 13px;
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r);
+  background: var(--panel); font-size: 12px;
+}
+.df .cta {
+  display: flex; align-items: center; gap: 11px;
+  border-left-color: var(--primary);
+  background: linear-gradient(90deg, rgba(46,230,200,.07), transparent 60%);
+}
+.df .cta.done { border-left-color: var(--s-mine); background: linear-gradient(90deg, rgba(79,184,245,.07), transparent 60%); }
+.df .cta > div { flex: 1; }
+.df .cta .muted { display: block; margin-top: 2px; font-size: 11px; }
+.df .cta .act { flex: none; }
+.df .info-box { border-left-color: var(--sky); }
+.df .warn-box { border-left-color: var(--amber); }
+.df .info-box b, .df .warn-box b { display: block; margin-bottom: 3px; }
+.df .info-box p, .df .warn-box p { margin: 0 0 8px; color: var(--ink-dim); font-size: 11.5px; }
+.df .info-box p:last-child, .df .warn-box p:last-child { margin-bottom: 0; }
+
+/* ── activity feed ─────────────────────────────────────────────────────── */
+.df .feed { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.df .feed li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 2px; border-bottom: 1px solid var(--line-soft);
+}
+.df .feed li:last-child { border-bottom: 0; }
+.df .feed .mono { flex: 1; font-size: 11.5px; }
+.df .ago { color: var(--ink-mute); font: 500 10.5px var(--mono); white-space: nowrap; }
+
+/* ── empty states ──────────────────────────────────────────────────────── */
+.df .empty { padding: 26px 14px; color: var(--ink-mute); text-align: center; }
+.df .empty .ei { margin-bottom: 7px; color: var(--line); font-size: 26px; line-height: 1; }
+.df .empty p { margin: 0 0 10px; font-size: 12px; }
+.df .empty .act { margin: 0 3px; }
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+.df .tbl-wrap {
+  margin-bottom: 11px; overflow-x: auto;
+  border: 1px solid var(--line-soft); border-radius: var(--r);
+}
+.df .tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.df .tbl th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 7px 9px; border-bottom: 1px solid var(--line);
+  background: var(--sunken); color: var(--ink-mute);
+  font: 800 9.5px var(--sans); letter-spacing: .09em; text-align: left; text-transform: uppercase;
+}
+.df .tbl td { padding: 6px 9px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.df .tbl tr:last-child td { border-bottom: 0; }
+.df .tbl tbody tr:hover { background: #0e181d; }
+.df .tbl .cbx { width: 28px; text-align: center; }
+.df .tbl .rowacts { width: 1%; text-align: right; white-space: nowrap; }
+.df .tbl .rowacts .act { margin-left: 4px; }
+.df .pick, .df .pick-all { accent-color: var(--primary); cursor: pointer; }
+
+/* ── filters ───────────────────────────────────────────────────────────── */
+.df .fq, .df .fstatus, .df .fsort {
+  min-height: 30px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink); font-size: 11.5px;
+}
+.df .fq:focus, .df .fstatus:focus, .df .fsort:focus { border-color: var(--primary-dim); outline: 0; }
+.df .chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+
+/* ── run controls ──────────────────────────────────────────────────────── */
+.df .fld { display: grid; gap: 3px; }
+.df .fld > span {
+  color: var(--ink-mute);
+  font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+}
+.df .fld input {
+  min-height: 29px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink); font: 600 12px var(--mono);
+}
+.df .fld input:focus { border-color: var(--primary-dim); outline: 0; }
+.df .runline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: var(--gap); }
+.df .runline .spacer { flex: 1; }
+.df .qcount { font: 600 10.5px var(--mono); }
+
+/* ── progress ──────────────────────────────────────────────────────────── */
+.df .prog-card {
+  margin-bottom: var(--gap); padding: 12px 13px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+}
+.df .prog { height: 5px; overflow: hidden; border-radius: 99px; background: var(--sunken); }
+.df .prog i {
+  display: block; width: 0; height: 100%;
+  background: linear-gradient(90deg, var(--primary-dim), var(--primary));
+  transition: width .3s ease-out;
+}
+.df .prog-txt { margin: 7px 0 0; font: 500 11px var(--mono); }
+.df .prog-eta { float: right; color: var(--ink-mute); font: 500 10.5px var(--mono); }
+.df .tally { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.df .log {
+  max-height: 148px; margin: 9px 0 0; padding: 8px 9px; overflow: auto;
+  border: 1px solid var(--line-soft); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink-dim);
+  font: 500 10.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all;
+}
+
+/* ── preset cards ──────────────────────────────────────────────────────── */
+.df .pgrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
+.df .pcard {
+  display: grid; gap: 6px; padding: 9px 10px;
+  border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
+}
+.df .pcard:hover { border-color: var(--line); }
+.df .pc-hd { display: flex; align-items: center; gap: 7px; }
+.df .pc-hd b { flex: 1; font-size: 12px; }
+.df .pc-code {
+  display: block; padding: 5px 7px; user-select: all;
+  border: 1px dashed var(--line); border-radius: var(--r);
+  background: var(--void); font-size: 11.5px;
+}
+.df .pc-ft { display: flex; align-items: center; gap: 7px; }
+.df .pc-ft .muted { flex: 1; font-size: 10px; }
+.df .tag {
+  padding: 1px 6px; border: 1px solid var(--line); border-radius: 99px;
+  color: var(--ink-mute);
+  font: 700 9px var(--sans); letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* ── share textareas ───────────────────────────────────────────────────── */
+.df .share-gift, .df .share-preset {
+  width: 100%; padding: 8px 9px; resize: vertical;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink-dim); font: 500 11px/1.6 var(--mono);
+}
+.df .share-gift:focus, .df .share-preset:focus { border-color: var(--primary-dim); outline: 0; }
+
+/* ── history timeline ──────────────────────────────────────────────────── */
+.df .tline { margin: 0; padding: 0; list-style: none; }
+.df .tline li { position: relative; display: flex; gap: 10px; padding-bottom: 13px; }
+.df .tline .pi { position: relative; flex: none; width: 9px; margin-top: 4px; }
+.df .tline .pi::before {
+  content: ''; position: absolute; left: 1px; top: 1px;
+  width: 7px; height: 7px; border-radius: 99px;
+  background: var(--line); box-shadow: 0 0 0 2px var(--bg);
+}
+.df .tline .pi::after {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: -13px;
+  width: 1px; background: var(--line-soft);
+}
+.df .tline li:last-child .pi::after { display: none; }
+.df .tline li.st-success .pi::before { background: var(--s-success); }
+.df .tline li.st-mine .pi::before { background: var(--s-mine); }
+.df .tline li.st-untried .pi::before { background: var(--s-untried); }
+.df .tline li.st-expired .pi::before { background: var(--s-expired); }
+.df .tline li.st-exhausted .pi::before { background: var(--s-exhausted); }
+.df .tline li.st-gift_bug .pi::before { background: var(--s-gift_bug); }
+.df .tline li.st-invalid .pi::before { background: var(--s-invalid); }
+.df .tl-body { flex: 1; min-width: 0; }
+.df .tl-top { display: flex; align-items: center; gap: 8px; }
+.df .tl-top .mono { font-size: 11.5px; }
+.df .tl-top .ago { margin-left: auto; }
+.df .tl-body .muted { display: block; margin-top: 2px; font-size: 10.5px; word-break: break-word; }
+
+/* ── command palette (Ctrl+K) ──────────────────────────────────────────── */
+.df.palette-wrap, .df .palette-wrap {
+  position: fixed; inset: 0; z-index: 2147483646;
+  display: grid; place-items: start center; padding-top: 12vh;
+  background: rgba(2, 6, 8, .62); backdrop-filter: blur(2px);
+}
+.df .palette {
+  width: min(520px, 92vw); overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: 0 24px 70px rgba(0, 0, 0, .66);
+}
+.df .pq {
+  width: 100%; padding: 13px 15px;
+  border: 0; border-bottom: 1px solid var(--line-soft);
+  background: transparent; color: var(--ink); font: 500 13.5px var(--sans);
+}
+.df .pq:focus { outline: 0; }
+.df .phits { max-height: 320px; overflow: auto; }
+.df .palette-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 15px; border: 0; background: transparent;
+  color: var(--ink); cursor: pointer; font: 500 12px var(--sans); text-align: left;
+}
+.df .palette-btn.on, .df .palette-btn:hover { background: #16242a; }
+.df .palette-btn .go { margin-left: auto; color: var(--ink-mute); font: 500 10px var(--mono); }
+.df .pnone { padding: 18px 15px; color: var(--ink-mute); font-size: 12px; text-align: center; }
+.df .pfoot {
+  display: flex; gap: 9px; padding: 8px 15px;
+  border-top: 1px solid var(--line-soft); background: var(--sunken);
+  color: var(--ink-mute); font-size: 10.5px;
+}
+.df .pfoot kbd, .df .kbd-hint kbd {
+  padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--raised); color: var(--ink-dim); font: 600 9.5px var(--mono);
+}
+.df .kbd-hint { color: var(--ink-mute); font-size: 10.5px; }
+
+/* ── toast host ────────────────────────────────────────────────────────── */
+.df.toast-wrap, .df .toast-wrap {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+  display: grid; gap: 7px; pointer-events: none;
+}
+
+/* ── small shared pieces ───────────────────────────────────────────────── */
+.df .close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 25px; height: 25px;
+  border: 1px solid transparent; border-radius: var(--r);
+  background: transparent; color: var(--ink-mute); cursor: pointer; font-size: 14px;
+}
+.df .close:hover { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.df .dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: var(--primary); }
+
+/* ── narrow surfaces: two-up grids collapse before text shrinks ────────── */
+@media (max-width: 560px) {
+  .df .two { grid-template-columns: 1fr; }
+  .df .pgrid { grid-template-columns: 1fr; }
+}
+
+/* Square icon-only button. Used by page headers where a label would crowd. */
+.df .act.icon-only { width: 30px; padding: 0; font-size: 14px; }
+.df .act.tiny.icon-only { width: 25px; font-size: 12px; }
+
+/* ── .ico — square icon button, the drawer header and row-action workhorse ──
+ * Defined here rather than next to .callout .ico (which is a decorative glyph,
+ * not a control) so every <button class="ico"> gets real chrome instead of
+ * Chrome's pale default. */
+.df button.ico, .df .ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 27px; height: 27px; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--raised); color: var(--ink-dim);
+  cursor: pointer; font-size: 13px; line-height: 1;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.df button.ico:hover, .df .ico:hover { border-color: var(--primary-dim); background: #16252b; color: var(--ink); }
+.df button.ico:active { transform: translateY(1px); }
+.df .ico.tiny { width: 23px; height: 23px; font-size: 11px; }
+.df .ico.close:hover { border-color: var(--danger); color: var(--danger); }
+/* The decorative glyph inside a callout keeps its original treatment. */
+.df .callout .ico, .df .info-box .ico, .df .warn-box .ico {
+  width: auto; height: auto; border: 0; background: none; cursor: default;
+}

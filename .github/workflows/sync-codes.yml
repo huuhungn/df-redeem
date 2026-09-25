@@ -1,0 +1,73 @@
+name: sync-codes
+
+# Folds community-confirmed gift-code verdicts from the Worker queue into
+# data/codes.json. Presets are NOT touched here — those arrive only through the
+# approved-preset issue form, reviewed by a human.
+
+on:
+  schedule:
+    # Every 6 hours. Codes expire on Garena's schedule, not ours, so a tighter
+    # loop buys nothing and burns Action minutes.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print the merge without committing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  # Two overlapping runs would both read /pending, both commit, and one would
+  # lose to a push race. Serialise them.
+  group: sync-codes
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Without the endpoint configured this job can only fail; skip it instead of
+    # emailing the owner a red X every 6 hours on a fresh fork.
+    if: vars.VAULT_URL != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Merge promoted rows
+        id: merge
+        env:
+          VAULT_URL: ${{ vars.VAULT_URL }}
+          VAULT_ADMIN_TOKEN: ${{ secrets.VAULT_ADMIN_TOKEN }}
+        run: |
+          set -o pipefail
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
+          node tools/merge-pending.js $ARGS | tee merge.log
+          # The script prints CHANGED=true/false as its last meaningful line.
+          if grep -q 'CHANGED=true' merge.log; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f merge.log
+
+      - name: Validate the merged file before committing
+        if: steps.merge.outputs.changed == 'true' && inputs.dry_run != true
+        run: node tools/validate-data.js
+
+      - name: Commit
+        if: steps.merge.outputs.changed == 'true' && inputs.dry_run != true
+        run: |
+          git config user.name 'df-redeem-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/codes.json
+          # A no-op add (identical content) must not fail the job.
+          git diff --cached --quiet && echo 'nothing staged' && exit 0
+          COUNT=$(node -e "const d=require('./data/codes.json');console.log(d.codes.length)")
+          git commit -m "data: sync community code verdicts ($COUNT codes)"
+          git push

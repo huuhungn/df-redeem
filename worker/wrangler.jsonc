@@ -1,0 +1,16 @@
+{
+  "name": "df-redeem-vault",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    {
+      "binding": "VAULT",
+      "//": "Replace with the real id from `wrangler kv namespace create VAULT` before deploying. `wrangler dev --local` ignores the id and uses on-disk KV.",
+      "id": "0000000000000000000000000000000d"
+    }
+  ],
+  "vars": {
+    "//": "IP_SALT and ADMIN_TOKEN are secrets, set with `wrangler secret put`, never here."
+  }
+}

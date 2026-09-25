@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Garena redeem — mock harness</title>
+<style>
+  body { font: 14px system-ui; background: #10201d; color: #dff; padding: 24px; }
+  .exc-input { padding: 8px; width: 280px; font: 13px monospace; }
+  .btn-exchange { padding: 8px 16px; cursor: pointer; }
+  #log { margin-top: 16px; font: 12px monospace; white-space: pre-wrap; color: #9fb; }
+</style>
+</head>
+<body>
+<h3>Mock redeem page (offline)</h3>
+<p>Chỉ dùng để kiểm tra engine: selector, network tap, phân loại, thử biến thể.</p>
+<input class="exc-input" placeholder="Nhập code">
+<button class="btn-exchange">Đổi</button>
+<div class="alert-message" style="margin-top:12px"></div>
+<div id="log"></div>
+
+<script>
+/* The mock backend. Mirrors the real contract: POST returns {code,msg},
+ * and the page shows a popup. Deliberately includes the nasty cases:
+ *  - a code that only works in its corrected OCR form
+ *  - a rate-limit burst
+ *  - one silent request (popup, no body) to prove NO_RESPONSE is untrusted
+ */
+const TRUTH = {
+  DFULTRA220:  { code: 0,      msg: 'success' },
+  DFUltra220:  { code: 0,      msg: 'success' },      // corrected variant wins
+  POC3105S96:  { code: 400067, msg: 'limit reached' },
+  DFEXPIRED01: { code: 400068, msg: 'expired' },
+  DFGIFTERR01: { code: 400073, msg: 'present error' },
+};
+let hits = 0;
+const logEl = document.getElementById('log');
+const log = (m) => { logEl.textContent += m + '\n'; };
+
+const realFetch = window.fetch.bind(window);
+window.fetch = async function mockFetch(url, init) {
+  const target = String(url);
+  if (!/redeem|cdkey|exchange/i.test(target)) return realFetch(url, init);
+  let code = '';
+  try { code = JSON.parse((init && init.body) || '{}').serialno || ''; } catch (_) {}
+  hits += 1;
+
+  // Simulate throttling on the 4th+ rapid hit.
+  if (hits === 4) {
+    log('mock: 429 rate limit for ' + code);
+    return new Response(JSON.stringify({ code: 401009, msg: 'too many requests' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } });
+  }
+  // Simulate a request that never answers (popup only) — must stay untrusted.
+  if (code === 'DFSILENT01') {
+    document.querySelector('.alert-message').textContent = 'Thành công';
+    log('mock: popup-only success, NO body for ' + code);
+    return new Promise(() => {}); // never resolves
+  }
+  const body = TRUTH[code] || { code: 400054, msg: 'cdk not match' };
+  log('mock: ' + code + ' -> code=' + body.code);
+  document.querySelector('.alert-message').textContent = body.msg;
+  await new Promise((r) => setTimeout(r, 120));
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+};
+
+/* Wire the page the way the real one behaves: click posts the input value. */
+document.querySelector('.btn-exchange').addEventListener('click', () => {
+  const value = document.querySelector('.exc-input').value.trim();
+  if (!value) return;
+  window.fetch('https://redeem.df.garena.sg/api/redeem', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serialno: value }),
+  }).catch(() => {});
+});
+</script>
+</body>
+</html>

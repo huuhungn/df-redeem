@@ -1,0 +1,184 @@
+/* styles.css — drawer shell for the in-page surface, layered on theme.css.
+ *
+ * v2 was a centred modal with a dimming backdrop: it covered the redeem form,
+ * so the user had to close the tool every time they wanted to paste a code.
+ * v3 is a right-hand DRAWER that docks beside the page, keeping the form
+ * reachable while a run is going. Resizable, collapsible, remembers its width.
+ */
+
+:host { all: initial; }
+
+.df.shell {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 2147483646;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  width: var(--w, 520px);
+  max-width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+.df.shell > * { pointer-events: auto; }
+.df.shell[hidden] { display: none !important; }
+
+/* ── drag-to-resize handle ─────────────────────────────────────────────── */
+.df .grip {
+  width: 5px;
+  border: 0;
+  padding: 0;
+  background: var(--line-soft);
+  cursor: col-resize;
+  transition: background .12s;
+}
+.df .grip:hover, .df .grip.active { background: var(--primary-dim); }
+
+/* ── drawer body ───────────────────────────────────────────────────────── */
+.df .drawer {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--bg);
+  box-shadow: -18px 0 50px rgba(0,0,0,.5);
+  container-type: inline-size;
+}
+
+/* ── header ────────────────────────────────────────────────────────────── */
+.df .hd {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #0d1a1e, var(--panel));
+}
+.df .brand { display: grid; gap: 1px; min-width: 0; }
+.df .brand .stencil { color: var(--primary); }
+.df .brand h2 {
+  margin: 0;
+  font-size: 14.5px; font-weight: 700; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.df .brand h2 .ver { color: var(--ink-mute); font-size: 10.5px; font-weight: 600; }
+.df .hd-acts { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+
+.df .sync-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--ink-mute); font-size: 10px; font-weight: 600;
+  cursor: default; white-space: nowrap;
+}
+.df .sync-chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.df .sync-chip.st-ok { border-color: var(--primary-dim); color: var(--primary); }
+.df .sync-chip.st-error { border-color: #4a2228; color: var(--danger); }
+.df .sync-chip.st-syncing { border-color: #4a3a1e; color: var(--amber); }
+
+/* ── tabs: a fixed grid, never a ragged wrap ────────────────────────────
+ * Flex-wrap left the 6th tab alone on its own row with a wide empty gap at
+ * drawer width. A 3-column grid always balances 3+3, and two columns at very
+ * narrow widths, so no tab is ever orphaned. */
+.df .views {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+@container (max-width: 330px) {
+  .df .views { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Below 430px the labels are hidden and six icons share one row — see the
+ * narrow-drawer block further down. */
+.df .vtab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0;                    /* grid cell must be allowed to shrink */
+  padding: 6px 8px;
+  border: 1px solid transparent; border-radius: var(--r);
+  background: none;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 11.5px; font-weight: 600;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.df .vtab .vi { font-size: 13px; line-height: 1; opacity: .85; }
+.df .vtab:hover { color: var(--ink-dim); background: var(--raised); }
+.df .vtab.on {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+.df .vtab .badge {
+  padding: 0 5px; border-radius: 8px;
+  background: var(--amber); color: #201400;
+  font-size: 9.5px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── view host ─────────────────────────────────────────────────────────── */
+.df .view-host { padding: 13px; overflow: auto; }
+.df .pad { display: grid; gap: var(--gap); }
+
+/* ── footer ────────────────────────────────────────────────────────────── */
+.df .ft {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 13px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-mute);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.df .ft .spacer { flex: 1; }
+
+/* ── launcher (collapsed state) ────────────────────────────────────────── */
+.df.launcher-wrap { position: fixed; right: 0; bottom: 96px; z-index: 2147483645; }
+.df .launcher {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 13px 10px 11px;
+  border: 1px solid var(--primary-dim); border-right: 0;
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+  background: linear-gradient(180deg, #0f2027, var(--panel));
+  box-shadow: -8px 0 26px rgba(0,0,0,.5);
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .08em;
+  writing-mode: vertical-rl;
+  transition: padding-right .14s, color .14s;
+}
+.df .launcher:hover { padding-right: 17px; color: #7ff5e0; }
+.df .launcher .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+
+/* ── run view ──────────────────────────────────────────────────────────── */
+.df .runbar { display: grid; gap: 9px; }
+.df .runstat { display: flex; flex-wrap: wrap; gap: 7px; }
+.df .queue { min-height: 104px; }
+.df .pacerow { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 9px; align-items: end; }
+.df .check { display: flex; align-items: center; gap: 7px; color: var(--ink-dim); font-size: 11.5px; cursor: pointer; }
+.df .check input { width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer; }
+
+/* ── library ───────────────────────────────────────────────────────────── */
+.df .filters { display: grid; grid-template-columns: minmax(130px, 1fr) auto auto; gap: 7px; }
+.df .bulk {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--sky) 32%, transparent);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--sky) 9%, transparent);
+  font-size: 11.5px;
+}
+.df .bulk.off { display: none; }
+.df .bulk b { color: var(--sky); }
+.df .pager { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ink-mute); font-size: 11.5px; }
+
+/* ── share ─────────────────────────────────────────────────────────────── */
+.df .sharebox { display: grid; gap: 8px; }
+
+/* ── narrow drawer: stack filters, hide tab text, shrink bar labels ────── */
+@container (max-width: 430px) {
+  .df .filters { grid-template-columns: 1fr; }
+  .df .bar-row { grid-template-columns: 78px 1fr 38px; }
+  .df .vtab .vl { display: none; }
+  .df .vtab { padding: 6px 9px; }
+  /* icons alone fit one clean row of six */
+  .df .views { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}

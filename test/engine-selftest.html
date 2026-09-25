@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="utf-8"><title>DF Redeem — engine self-test</title>
+<style>body{font:13px system-ui;background:#0b1a17;color:#dff;padding:20px}
+.exc-input{padding:7px;width:300px;font:13px monospace}
+.btn-exchange{padding:7px 14px}
+pre{background:#02100d;padding:12px;border-radius:6px;color:#9fb;white-space:pre-wrap}</style>
+</head>
+<body>
+<h3>Engine self-test (offline mock)</h3>
+<input class="exc-input" placeholder="code"><button class="btn-exchange">Đổi</button>
+<div class="alert-message"></div>
+<pre id="out">đang chạy…</pre>
+
+<script>
+/* ── mock Garena backend ───────────────────────────────────────────── */
+const TRUTH = {
+  DFULTRA220:  { code: 0,      msg: 'success' },
+  DFUltra220:  { code: 0,      msg: 'success' },
+  POC3105S96:  { code: 400067, msg: 'limit reached' },
+  DFEXPIRED01: { code: 400068, msg: 'expired' },
+  DFGIFTERR01: { code: 400073, msg: 'present error' },
+};
+let hits = 0;
+const mockLog = [];
+const realFetch = window.fetch.bind(window);
+window.fetch = async function (url, init) {
+  const target = String(url);
+  if (!/redeem|cdkey|exchange/i.test(target)) return realFetch(url, init);
+  let code = '';
+  try { code = JSON.parse((init && init.body) || '{}').serialno || ''; } catch (_) {}
+  hits += 1;
+  if (code === 'DFSILENT01') {
+    document.querySelector('.alert-message').textContent = 'Thành công';
+    mockLog.push(code + ' -> popup only, no body');
+    return new Promise(() => {});
+  }
+  if (hits === 4) {
+    mockLog.push(code + ' -> 429 throttle');
+    return new Response(JSON.stringify({ code: 401009, msg: 'too many requests' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } });
+  }
+  const body = TRUTH[code] || { code: 400054, msg: 'cdk not match' };
+  mockLog.push(code + ' -> code=' + body.code);
+  document.querySelector('.alert-message').textContent = body.msg;
+  await new Promise((r) => setTimeout(r, 100));
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+};
+document.querySelector('.btn-exchange').addEventListener('click', () => {
+  const v = document.querySelector('.exc-input').value.trim();
+  if (!v) return;
+  window.fetch('https://redeem.df.garena.sg/api/redeem', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serialno: v }),
+  }).catch(() => {});
+});
+</script>
+
+<script src="../dist/df-redeem.headless.js"></script>
+
+<script>
+/* ── drive the engine exactly as Hermes will ───────────────────────── */
+(async () => {
+  const out = document.getElementById('out');
+  const api = window.__dfRedeem;
+  if (!api) { out.textContent = 'FAIL: engine did not install'; return; }
+
+  // Fast timings for the test; production run uses much slower pacing.
+  api.start(
+    ['DFULTRA220', 'POC3105S96', 'DFEXPIRED01', 'DFGIFTERR01', 'DFSILENT01', 'DFUItra220'],
+    { delayMs: 300, minDelayMs: 200, maxDelayMs: 1200, responseTimeoutMs: 1500,
+      maxRetries: 1, tryVariants: true, maxVariants: 3, stopOnFatal: true }
+  );
+
+  let cursor = 0;
+  const seen = [];
+  for (let tick = 0; tick < 120; tick += 1) {
+    await new Promise((r) => setTimeout(r, 250));
+    const poll = api.poll(cursor);
+    cursor = poll.totalResults;
+    for (const r of poll.newResults) seen.push(r);
+    if (poll.finished) break;
+  }
+  const summary = api.poll(0).summary;
+  window.__testOut = {
+    installed: true,
+    mockCalls: mockLog,
+    summary,
+    rows: seen.map((r) => ({
+      pos: r.position, code: r.code, redeemedAs: r.redeemedAs,
+      status: r.status, trusted: r.trusted, attempts: r.attempts,
+      variantUsed: r.redeemedAs !== r.code, detail: r.detail,
+    })),
+    csvHead: api.csv().split('\n').slice(0, 3),
+  };
+  out.textContent = JSON.stringify(window.__testOut, null, 2);
+})();
+</script>
+</body>
+</html>

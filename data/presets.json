@@ -1,0 +1,147 @@
+{
+  "version": 3,
+  "updated_at": "2026-09-25T15:28:40.458Z",
+  "note": "Gunsmith presets. Added only through the approved-preset issue form — never automatically.",
+  "presets": [
+    {
+      "code": "6KMEQNG00T99PRENQV488",
+      "weapon": "AKM Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "5620492356433216746",
+      "weapon": "AKS-74 Assault Rifle",
+      "mode": "Havoc Warfare",
+      "author": "/u/YareYareDaze88",
+      "verified": false
+    },
+    {
+      "code": "5620492390792957637",
+      "weapon": "AKS-74 Assault Rifle",
+      "mode": "Havoc Warfare",
+      "author": "/u/Upstairs-Pirate-9890",
+      "verified": false
+    },
+    {
+      "code": "6K2DPRC0EFTIUBE9ION7O",
+      "weapon": "AS Val Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KFJKLO07BHIFPGO0COS7",
+      "weapon": "AUG Assault Rifle",
+      "mode": "Chiến Trường Toàn Diện",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KHHFEC00T99PRENQV488",
+      "weapon": "CI-19 Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KL5IJ808VISLV9EEUC8U",
+      "weapon": "EasyB AS Val Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6JJ7O7807BHLT2L523U7J",
+      "weapon": "FS-12 Shotgun",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KP9FT00823TFSU27R1IR",
+      "weapon": "K416 Assault Rifle",
+      "mode": "Warfare",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KRR21K07BHHUFGKQS7IG",
+      "weapon": "KC17 Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KMNU780C122OV360GSH4",
+      "weapon": "M14 Marksman Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KQOCNC0DGSQA4BKR9BOU",
+      "weapon": "M14 Marksman Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6K6LG9K09QC5OIM45IHPM",
+      "weapon": "M7 Battle Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6K8O4000C4GUUFLHNO8FE",
+      "weapon": "MK4 Submachine Gun",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KNTJ9002BLOGMGFDMK4F",
+      "weapon": "MK47 Assault Rifle",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KOQD3G01D6SCK9GT7EFU",
+      "weapon": "MP5 Submachine Gun",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6KH5CPS02JENJFMEC6G27",
+      "weapon": "Súng Trường Xạ Thủ SVCH",
+      "mode": "Chiến Dịch Sinh Tồn",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "6L8UK300A8JTQS5OHR522",
+      "weapon": "Tay Đen",
+      "mode": "Chiến Dịch (Thoát Hiểm)",
+      "author": "bundled",
+      "verified": true
+    },
+    {
+      "code": "5620492382203032302",
+      "weapon": "Upstairs-Pirate-9890 AKS-74 Assault Rifle",
+      "mode": "Tactical Turmoil",
+      "author": "/u/Spezzare",
+      "verified": false
+    },
+    {
+      "code": "5620492343548352708",
+      "weapon": "UZI Submachine Gun",
+      "mode": "Havoc Warfare",
+      "author": "/u/Sluiskampert",
+      "verified": false
+    }
+  ]
+}

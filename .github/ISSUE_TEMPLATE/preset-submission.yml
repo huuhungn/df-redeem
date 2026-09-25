@@ -1,0 +1,58 @@
+name: Submit a gunsmith preset
+description: Share a weapon build code. An owner reviews it before it joins data/presets.json.
+title: 'preset: '
+labels: ['preset-submission']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Presets are never added automatically — a maintainer reads every submission
+        first. Gift codes do not belong here: the extension reports those on its own.
+
+  - type: input
+    id: code
+    attributes:
+      label: Preset code
+      description: The code exactly as the game shows it. Letters and digits only.
+      placeholder: 6KFJKLO07BHIFPGO0COS7
+    validations:
+      required: true
+
+  - type: input
+    id: weapon
+    attributes:
+      label: Weapon
+      placeholder: AUG Assault Rifle
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      options:
+        - Havoc Warfare
+        - Tactical Turmoil
+        - Operations
+        - Chiến Trường Toàn Diện
+        - Chiến Dịch Sinh Tồn
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: credit
+    attributes:
+      label: Credit (optional)
+      description: A public handle to credit. Leave empty to stay anonymous — do not put an email or real name here.
+      placeholder: '@your-handle'
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I tested this code in-game and it imported a working build.
+          required: true
+        - label: This issue contains no account credential, session token, or personal data.
+          required: true
