@@ -914,7 +914,7 @@ function createPanel(options) {
         if (!reply || !reply.ok) throw new Error((reply && reply.error) || 'không tải được');
         if (!S || !S.mergeCommunityCodes) throw new Error('thiếu module sync');
         const merged = S.mergeCommunityCodes(cache.codes, reply.codes || []);
-        for (const row of merged.rows) {
+        for (const row of merged.records) {
           if (row.source === 'community') await vault.upsert(row);
         }
         await refresh();

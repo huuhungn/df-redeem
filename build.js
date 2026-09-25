@@ -83,6 +83,28 @@ const DF_PANEL_CSS = ${JSON.stringify(styles)};
 const DF_REDEEM_STYLES = DF_THEME_CSS + DF_PANEL_CSS;\n${panel}`;
 
 /* ── console target ───────────────────────────────────────────────────── */
+/* Community access for the buildless targets.
+ *
+ * The extension routes these through the service worker because it holds the
+ * host permissions. Console and userscript have no such worker, but both
+ * endpoints send permissive CORS headers and neither needs credentials, so the
+ * page can call them itself. Verified against the live Garena page: the site's
+ * CSP governs what it loads, not what a script fetches with fetch().
+ *
+ * Only these two calls are exposed. Anything account-specific (push of local
+ * records, settings) stays with the storage-backed targets. */
+const DIRECT_SYNC = `  const sync = (() => {
+    /* No chromeApi: without it the service cannot read stored settings, so pass
+     * the defaults in explicitly on every call. */
+    const svc = DFRedeemSync.createSyncService({ fetchFn: (...a) => fetch(...a) });
+    const settings = DFRedeemSync.publicSettings();
+    return {
+      communityPull: () => svc.fetchCommunity(settings),
+      communityPush: (rows) => svc.reportOutcomes(rows || [], settings),
+    };
+  })();
+`;
+
 const consoleBuild = `${BANNER}
 (function dfRedeemConsole() {
   'use strict';
@@ -94,7 +116,8 @@ const consoleBuild = `${BANNER}
   const root = window;
 ${CORE}
 ${UI}
-  const panel = createPanel({ version: '${VERSION}', target: 'console' });
+${DIRECT_SYNC}
+  const panel = createPanel({ version: '${VERSION}', target: 'console', sync });
   window.__dfRedeemPanel = panel;
   panel.open();
   console.log('%c[DF Redeem v${VERSION}]%c bảng điều khiển đã mở. Dán danh sách code vào ô, bấm Bắt đầu.',
@@ -128,7 +151,8 @@ ${UI}
     set(key, value) { try { if (typeof GM_setValue === 'function') GM_setValue(key, value); } catch (_) {} },
     del(key) { try { if (typeof GM_deleteValue === 'function') GM_deleteValue(key); } catch (_) {} },
   };
-  const panel = createPanel({ version: '${VERSION}', target: 'userscript', store });
+${DIRECT_SYNC}
+  const panel = createPanel({ version: '${VERSION}', target: 'userscript', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
 }());
