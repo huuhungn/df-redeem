@@ -69,6 +69,14 @@ Havoc Warfare
 - [X] I tested this code in-game and it imported a working build.
 `;
 
+/* A previous run that was killed before its `finally` leaves both a stale backup
+ * and a dirty data file. Backing the dirty file up again would bake the test rows
+ * into the repo permanently, so recover from the stale backup first. */
+if (fs.existsSync(BACKUP)) {
+  fs.copyFileSync(BACKUP, PRESETS);
+  fs.unlinkSync(BACKUP);
+  console.log('recovered data/presets.json from a stale backup of an interrupted run');
+}
 fs.copyFileSync(PRESETS, BACKUP);
 const before = readPresets().length;
 

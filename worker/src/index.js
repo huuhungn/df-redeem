@@ -33,6 +33,8 @@ const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift
 const CONFIRMATIONS_REQUIRED = 2;
 
 const MAX_SUBMITS_PER_WINDOW = 120;
+/* A full vault is a few hundred rows; anything beyond this is not a real client. */
+const MAX_BATCH_ROWS = 500;
 const RATE_WINDOW_SECONDS = 3600;
 /* Queue rows expire so an abandoned code never lingers forever. */
 const PENDING_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -80,20 +82,14 @@ async function rateLimited(env, fingerprint) {
   return false;
 }
 
-async function handleSubmit(request, env) {
-  let payload;
-  try {
-    payload = await request.json();
-  } catch {
-    return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
-  }
+/* Classify and record one verdict. Shared by /submit and /submit-batch so both
+ * paths cannot drift; rate limiting is the caller's job because a batch must
+ * cost one slot, not one per row. */
+async function recordVerdict(env, rawCode, rawErr, fingerprint) {
+  const code = String(rawCode || '').trim().toUpperCase();
+  if (!CODE_RE.test(code)) return { ok: false, error: 'code must be 6-32 chars A-Z0-9', status: 400 };
 
-  const code = String(payload && payload.code || '').trim().toUpperCase();
-  if (!CODE_RE.test(code)) {
-    return json({ ok: false, error: 'code must be 6-32 chars A-Z0-9' }, { status: 400 });
-  }
-
-  const errCode = Number(payload && payload.err_code);
+  const errCode = Number(rawErr);
   /* Three outcomes, kept apart on purpose:
    *   publishable  → queued for confirmation
    *   per-account  → accepted, never queued (true for one account only)
@@ -102,22 +98,13 @@ async function handleSubmit(request, env) {
   const isPerAccount = PER_ACCOUNT.has(errCode);
   const isTransient = TRANSIENT.has(errCode);
   if (!VERDICT_BY_ERR.has(errCode) && !isPerAccount && !isTransient) {
-    return json({ ok: false, error: `unknown err_code ${errCode}` }, { status: 400 });
+    return { ok: false, error: `unknown err_code ${errCode}`, status: 400 };
   }
 
-  const fingerprint = await clientFingerprint(request, env);
-  if (await rateLimited(env, fingerprint)) {
-    return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
-  }
+  if (isPerAccount) return { ok: true, code, queued: false, reason: 'verdict is account-specific' };
+  if (isTransient) return { ok: true, code, queued: false, reason: 'verdict is transient' };
 
-  if (isPerAccount) {
-    return json({ ok: true, queued: false, reason: 'verdict is account-specific' });
-  }
-  if (isTransient) {
-    return json({ ok: true, queued: false, reason: 'verdict is transient' });
-  }
   const verdict = VERDICT_BY_ERR.get(errCode);
-
   const key = `pending:${code}`;
   const existing = JSON.parse((await env.VAULT.get(key)) || 'null') || {
     code,
@@ -139,7 +126,7 @@ async function handleSubmit(request, env) {
 
   await env.VAULT.put(key, JSON.stringify(existing), { expirationTtl: PENDING_TTL_SECONDS });
 
-  return json({
+  return {
     ok: true,
     queued: true,
     code,
@@ -147,6 +134,90 @@ async function handleSubmit(request, env) {
     confirmations: existing.confirmations,
     needed: CONFIRMATIONS_REQUIRED,
     promoted: existing.promoted,
+  };
+}
+
+async function handleSubmit(request, env) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
+  }
+
+  const fingerprint = await clientFingerprint(request, env);
+  if (await rateLimited(env, fingerprint)) {
+    return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
+  }
+
+  const result = await recordVerdict(env, payload && payload.code, payload && payload.err_code, fingerprint);
+  if (!result.ok) {
+    const { status, ...body } = result;
+    return json(body, { status: status || 400 });
+  }
+  return json(result);
+}
+
+/* One request for a whole vault. A client reporting 200 codes over 200 requests
+ * burns the hourly quota and cannot finish inside a message-port timeout, so the
+ * batch costs a single rate-limit slot and answers with a per-row breakdown. */
+async function handleSubmitBatch(request, env) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
+  }
+
+  const rows = (payload && payload.rows) || [];
+  if (!Array.isArray(rows)) return json({ ok: false, error: 'rows must be an array' }, { status: 400 });
+  if (!rows.length) return json({ ok: true, accepted: 0, queued: 0, rejected: 0, results: [] });
+  if (rows.length > MAX_BATCH_ROWS) {
+    return json({ ok: false, error: `at most ${MAX_BATCH_ROWS} rows per batch` }, { status: 413 });
+  }
+
+  const fingerprint = await clientFingerprint(request, env);
+  if (await rateLimited(env, fingerprint)) {
+    return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
+  }
+
+  /* Each row read-modify-writes its own KV key, so rows for *different* codes are
+   * independent and can run concurrently; a full vault took ~175s strictly
+   * sequential, which no client will wait for. Rows sharing a code must stay
+   * ordered or they would overwrite each other's confirmation count, so group by
+   * code first and run the groups in bounded-concurrency waves. */
+  const groups = new Map();
+  rows.forEach((row, index) => {
+    const key = String((row && row.code) || '').trim().toUpperCase() || `__invalid__${index}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ row, index });
+  });
+
+  const results = new Array(rows.length);
+  const pending = [...groups.values()];
+  const WAVE = 60;
+  for (let i = 0; i < pending.length; i += WAVE) {
+    await Promise.all(pending.slice(i, i + WAVE).map(async (group) => {
+      for (const { row, index } of group) {
+        results[index] = await recordVerdict(env, row && row.code, row && row.err_code, fingerprint);
+      }
+    }));
+  }
+
+  let queued = 0;
+  let rejected = 0;
+  for (const outcome of results) {
+    if (!outcome.ok) rejected += 1;
+    else if (outcome.queued) queued += 1;
+  }
+
+  return json({
+    ok: true,
+    accepted: rows.length - rejected,
+    queued,
+    rejected,
+    needed: CONFIRMATIONS_REQUIRED,
+    results,
   });
 }
 
@@ -223,6 +294,7 @@ export default {
     try {
       if (url.pathname === '/health' && request.method === 'GET') response = await handleHealth(env);
       else if (url.pathname === '/submit' && request.method === 'POST') response = await handleSubmit(request, env);
+      else if (url.pathname === '/submit-batch' && request.method === 'POST') response = await handleSubmitBatch(request, env);
       else if (url.pathname === '/pending' && request.method === 'GET') response = await handlePending(request, env);
       else if (url.pathname === '/ack' && request.method === 'POST') response = await handleAck(request, env);
       else response = json({ ok: false, error: 'not found' }, { status: 404 });

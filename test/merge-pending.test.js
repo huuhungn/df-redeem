@@ -8,6 +8,7 @@
 'use strict';
 const { spawn, execSync, execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -51,12 +52,25 @@ async function waitForReady(timeoutMs) {
 }
 
 (async function main() {
+  /* A run killed before its `finally` leaves a stale backup beside a dirty data
+   * file; backing the dirty file up again would make the test rows permanent. */
+  if (fs.existsSync(BACKUP)) {
+    fs.copyFileSync(BACKUP, CODES_FILE);
+    fs.unlinkSync(BACKUP);
+    console.log('recovered data/codes.json from a stale backup of an interrupted run');
+  }
   fs.copyFileSync(CODES_FILE, BACKUP);
   const before = readDoc();
 
+  /* `wrangler dev --local` persists KV to disk under the worker directory, so a
+   * previous run's promoted codes would still be in the queue and merge would add
+   * more rows than this run submitted. Give every run its own throwaway state. */
+  const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'df-merge-state-'));
+
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['wrangler', 'dev', '--port', String(PORT), '--local', '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:merge-salt'],
+    ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', STATE_DIR,
+      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:merge-salt'],
     { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
   );
   let log = '';
@@ -72,6 +86,7 @@ async function waitForReady(timeoutMs) {
   const restore = () => {
     fs.copyFileSync(BACKUP, CODES_FILE);
     fs.unlinkSync(BACKUP);
+    try { fs.rmSync(STATE_DIR, { recursive: true, force: true }); } catch { /* best effort */ }
   };
 
   if (!(await waitForReady(90000))) {

@@ -177,7 +177,10 @@ ${UI}
   /* MAIN world has no chrome.* — talk to the worker through bridge.js. */
   const askBridge = (op, payload) => new Promise((resolve, reject) => {
     const id = 'df' + Math.random().toString(36).slice(2) + Date.now();
-    const timer = setTimeout(() => { window.removeEventListener('message', onReply); reject(new Error('Bridge không trả lời.')); }, 15000);
+    /* A full-vault batch legitimately takes tens of seconds server-side, and a
+     * premature timeout here made the drawer report failure while the upload was
+     * still succeeding in the background. */
+    const timer = setTimeout(() => { window.removeEventListener('message', onReply); reject(new Error('Bridge không trả lời.')); }, 60000);
     function onReply(event) {
       const msg = event.data;
       if (!msg || msg.channel !== 'df-redeem-sync-reply' || msg.id !== id) return;

@@ -335,25 +335,48 @@ const DFRedeemSync = (function attachSync(root) {
       );
       if (!shareable.length) return { ok: true, sent: 0, skipped: 'nothing-shareable' };
 
-      let sent = 0;
-      const failures = [];
-      for (const row of shareable) {
-        try {
+      /* One request for the whole set. Reporting row-by-row exhausted the broker's
+       * hourly quota and could not finish inside the drawer's bridge timeout, so a
+       * full vault never got reported at all.
+       *
+       * The configured URL points at the single-row endpoint, so derive the batch
+       * one. If it has been pointed somewhere unrecognised, fall back rather than
+       * POST a batch body to an endpoint that expects one row. */
+      const batchEndpoint = /\/submit$/.test(endpoint) ? endpoint.replace(/\/submit$/, '/submit-batch') : null;
+      if (!batchEndpoint) {
+        return { ok: false, sent: 0, failed: shareable.length, error: 'endpoint phải kết thúc bằng /submit' };
+      }
+      try {
+        const response = await fetchFn(batchEndpoint, {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
           /* Only the code and the raw Garena error number travel. No timestamps,
            * no account, no local notes — the broker derives the verdict itself. */
-          const response = await fetchFn(endpoint, {
-            method: 'POST',
-            credentials: 'omit',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: String(row.code).trim().toUpperCase(), err_code: Number(row.err_code || 0) }),
-          });
-          if (response && response.ok) sent += 1;
-          else failures.push(`${row.code}: HTTP ${response && response.status || 0}`);
-        } catch (error) {
-          failures.push(`${row.code}: ${String(error && error.message || error)}`);
+          body: JSON.stringify({
+            rows: shareable.map((row) => ({
+              code: String(row.code).trim().toUpperCase(),
+              err_code: Number(row.err_code || 0),
+            })),
+          }),
+        });
+        if (!response || !response.ok) {
+          return { ok: false, sent: 0, failed: shareable.length, error: `HTTP ${response && response.status || 0}` };
         }
+        const doc = await response.json();
+        const rejected = Number(doc.rejected || 0);
+        return {
+          ok: rejected === 0,
+          sent: Number(doc.accepted || 0),
+          queued: Number(doc.queued || 0),
+          failed: rejected,
+          needed: Number(doc.needed || 0),
+          failures: (doc.results || []).filter((r) => r && r.ok === false).slice(0, 5)
+            .map((r) => `${r.code || '?'}: ${r.error || 'rejected'}`),
+        };
+      } catch (error) {
+        return { ok: false, sent: 0, failed: shareable.length, error: String(error && error.message || error) };
       }
-      return { ok: failures.length === 0, sent, failed: failures.length, failures: failures.slice(0, 5) };
     }
 
     return { registerBackend, syncNow, status, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY } };

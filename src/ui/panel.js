@@ -613,10 +613,13 @@ function createPanel(options) {
   function renderShare() {
     const gifts = shareableCodes();
     const presets = cache.presets;
+    /* How much of the local vault came from the shared list, so the card says
+     * something before any button is pressed rather than sitting blank. */
+    const fromCommunity = cache.codes.filter((c) => (c.tags || []).includes('community')).length;
 
     viewHost.innerHTML = `<div class="pad">
       <section class="card">
-        <div class="card-hd"><h3>Kho cộng đồng</h3><span class="muted community-count"></span></div>
+        <div class="card-hd"><h3>Kho cộng đồng</h3><span class="muted community-count">${fromCommunity} mã từ cộng đồng</span></div>
         <p class="muted tight">Tải danh sách mã mọi người đã kiểm chứng về máy, và gửi kết quả của bạn lên để người khác khỏi thử lại mã đã chết. Chỉ gửi mã và mã lỗi Garena trả về — không gửi tài khoản, cookie hay thời điểm.</p>
         <div class="btnrow">
           <button class="act primary" data-act="community-pull">Tải mã mới về</button>

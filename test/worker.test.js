@@ -5,6 +5,8 @@
  */
 'use strict';
 const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const WORKER_DIR = path.join(__dirname, '..', 'worker');
@@ -60,10 +62,14 @@ async function waitForReady(timeoutMs) {
 const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
 
 (async function main() {
+  /* Own throwaway KV state per run: the default persists under worker/.wrangler
+   * and earlier runs' promoted codes would leak into this one's assertions. */
+  const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'df-worker-state-'));
   console.log('starting wrangler dev (local KV)...');
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['wrangler', 'dev', '--port', String(PORT), '--local', '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:test-salt'],
+    ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', STATE_DIR,
+      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:test-salt'],
     { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
   );
   let log = '';
@@ -75,6 +81,7 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
       if (process.platform === 'win32') execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
       else child.kill('SIGTERM');
     } catch { /* already gone */ }
+    try { fs.rmSync(STATE_DIR, { recursive: true, force: true }); } catch { /* best effort */ }
   };
 
   if (!(await waitForReady(90000))) {
@@ -211,6 +218,89 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
 
     const otherStillOk = await post('/submit', { code: 'DFOTHER00001', err_code: 400054 }, asClient('10.0.9.100'));
     check('rate limit is per client, not global', otherStillOk.status === 200, 'status ' + otherStillOk.status);
+
+    /* ---- /submit-batch --------------------------------------------------- */
+    /* A client reporting a full vault row-by-row exhausts the hourly quota long
+     * before it finishes, so a whole vault must cost a single slot. */
+    const batchIp = asClient('10.0.20.1');
+    const batchRows = [
+      { code: 'DFBATCHGOOD1', err_code: 0 },
+      { code: 'DFBATCHDEAD1', err_code: 400068 },
+      { code: 'DFBATCHMINE1', err_code: 400067 },
+      { code: 'DFBATCHJUNK1', err_code: 999999 },
+      { code: 'sh', err_code: 0 },
+    ];
+    const batch = await post('/submit-batch', { rows: batchRows }, batchIp);
+    check('a batch is accepted', batch.status === 200, 'status ' + batch.status);
+    check('a batch reports per-row outcomes',
+      batch.json && batch.json.results && batch.json.results.length === batchRows.length,
+      JSON.stringify(batch.json && batch.json.results && batch.json.results.length));
+    check('only publishable rows are queued', batch.json && batch.json.queued === 2, JSON.stringify(batch.json));
+    check('an unknown err_code and a malformed code are rejected',
+      batch.json && batch.json.rejected === 2, JSON.stringify(batch.json));
+    check('a per-account row is accepted without queueing',
+      batch.json && batch.json.results.some((r) => r.code === 'DFBATCHMINE1' && r.ok === true && r.queued === false),
+      JSON.stringify(batch.json && batch.json.results));
+
+    /* The batched rows must land in the same queue /submit writes to, which means
+     * a second independent client confirming one of them promotes it — proving the
+     * batch wrote a real reporter into the shared queue, not a private one.
+     * (/pending only lists promoted rows, so a single reporter is invisible there.) */
+    const batchConfirm = await post('/submit', { code: 'DFBATCHGOOD1', err_code: 0 }, asClient('10.0.21.7'));
+    check('a batched row shares its queue row with /submit',
+      batchConfirm.status === 200 && batchConfirm.json.confirmations === 2 && batchConfirm.json.promoted === true,
+      JSON.stringify(batchConfirm.json));
+
+    const batchPending = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
+    const queuedCodes = (batchPending.json.rows || []).map((p) => p.code);
+    check('a confirmed batched row reaches the publish queue',
+      queuedCodes.includes('DFBATCHGOOD1'),
+      JSON.stringify(queuedCodes.filter((c) => c.startsWith('DFBATCH'))));
+
+    /* Same IP, a second big batch: it must still be allowed, which proves the
+     * batch cost one slot rather than one per row. */
+    const secondBatch = await post('/submit-batch', {
+      rows: Array.from({ length: 60 }, (_, i) => ({ code: 'DFBATCHB' + String(i).padStart(4, '0'), err_code: 400054 })),
+    }, batchIp);
+    check('a batch costs one rate-limit slot, not one per row',
+      secondBatch.status === 200, 'status ' + secondBatch.status);
+
+    /* Duplicate rows for one code inside a single batch share a KV key, so running
+     * them concurrently would lose a confirmation. They must stay ordered. */
+    const dupBatch = await post('/submit-batch', {
+      rows: [
+        { code: 'DFDUPEROW0001', err_code: 0 },
+        { code: 'DFDUPEROW0001', err_code: 0 },
+      ],
+    }, asClient('10.0.22.5'));
+    const dupOutcomes = (dupBatch.json && dupBatch.json.results) || [];
+    check('duplicate rows in one batch are applied in order, not raced',
+      dupOutcomes.length === 2 && dupOutcomes[0].confirmations === 1 && dupOutcomes[1].confirmations === 1,
+      JSON.stringify(dupOutcomes));
+
+    /* A whole vault took ~175s when every row was written strictly sequentially,
+     * which no client waits for; the handler now runs independent codes in waves. */
+    const bulkRows = [];
+    for (let i = 0; i < 200; i += 1) bulkRows.push({ code: 'DFBULK' + String(i).padStart(6, '0'), err_code: 400054 });
+    const bulkStart = Date.now();
+    const bulk = await post('/submit-batch', { rows: bulkRows }, asClient('10.0.23.9'));
+    const bulkMs = Date.now() - bulkStart;
+    check('a 200-row batch is accepted whole',
+      bulk.status === 200 && bulk.json.queued === 200,
+      'status ' + bulk.status + ' queued ' + (bulk.json && bulk.json.queued));
+    check('a 200-row batch finishes inside a client timeout', bulkMs < 20000, bulkMs + 'ms');
+
+    const tooBig = await post('/submit-batch', {
+      rows: Array.from({ length: 501 }, (_, i) => ({ code: 'DFHUGE' + String(i).padStart(6, '0'), err_code: 0 })),
+    }, asClient('10.0.20.2'));
+    check('an oversized batch is refused', tooBig.status === 413, 'status ' + tooBig.status);
+
+    const notArray = await post('/submit-batch', { rows: 'nope' }, asClient('10.0.20.3'));
+    check('a non-array rows field is refused', notArray.status === 400, 'status ' + notArray.status);
+
+    const emptyBatch = await post('/submit-batch', { rows: [] }, asClient('10.0.20.4'));
+    check('an empty batch is a no-op, not an error',
+      emptyBatch.status === 200 && emptyBatch.json.queued === 0, JSON.stringify(emptyBatch.json));
   } catch (error) {
     failed += 1;
     console.log('FAIL harness threw — ' + (error && error.message));

@@ -86,10 +86,14 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
 
   /* ---- reportOutcomes -------------------------------------------------- */
   {
-    const posted = [];
+    const requests = [];
     const service = DFRedeemSync.createSyncService({
       chromeApi: fakeChrome({ communityReportUrl: 'https://broker.test/submit' }),
-      fetchFn: async (url, init) => { posted.push(JSON.parse(init.body)); return jsonResponse({ ok: true }); },
+      fetchFn: async (url, init) => {
+        requests.push({ url, body: JSON.parse(init.body) });
+        const rows = JSON.parse(init.body).rows || [];
+        return jsonResponse({ ok: true, accepted: rows.length, queued: rows.length, rejected: 0, needed: 2, results: [] });
+      },
     });
     const result = await service.reportOutcomes([
       { code: 'good1code', status: 'success', err_code: 0 },
@@ -97,6 +101,14 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       { code: 'mine1code', status: 'mine', err_code: 400067 },
       { code: 'untried01', status: 'untried', err_code: 0 },
     ]);
+
+    /* One request for the whole vault: row-by-row reporting burned the broker's
+     * hourly quota and timed out the drawer's bridge before finishing. */
+    check('the whole set goes in one request', requests.length === 1, 'requests: ' + requests.length);
+    check('the batch endpoint is derived from the configured one',
+      requests[0] && requests[0].url === 'https://broker.test/submit-batch', requests[0] && requests[0].url);
+
+    const posted = (requests[0] && requests[0].body.rows) || [];
     check('reportOutcomes sends shareable verdicts', result.sent === 2, JSON.stringify(result));
     check('an account-specific verdict is never reported', !posted.some((p) => p.code === 'MINE1CODE'), JSON.stringify(posted));
     check('an untried code is never reported', !posted.some((p) => p.code === 'UNTRIED01'), JSON.stringify(posted));
@@ -104,6 +116,8 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('reports carry only code and err_code',
       posted.every((p) => Object.keys(p).sort().join(',') === 'code,err_code'), JSON.stringify(posted));
     check('reported codes are normalised to uppercase', posted.every((p) => p.code === p.code.toUpperCase()), JSON.stringify(posted));
+    check('the batch body carries nothing but rows',
+      Object.keys(requests[0].body).join(',') === 'rows', JSON.stringify(Object.keys(requests[0].body)));
   }
 
   {
