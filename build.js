@@ -268,10 +268,30 @@ ${CORE}
 const manifest = {
   manifest_version: 3,
   name: 'Delta Force Auto Redeem',
+  /* Chrome truncates long names under the toolbar icon and on the extensions
+   * page, so a short form is supplied rather than letting it cut mid-word. */
+  short_name: 'DF Redeem',
   version: VERSION,
-  description: 'Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật. Không gửi dữ liệu ra ngoài.',
-  icons: { 16: 'icons/icon16.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' },
-  action: { default_title: 'Mở bảng đổi code Delta Force', default_popup: 'popup.html' },
+  /* Chrome shows this verbatim in the extensions list, which caps it around 132
+   * characters; keep it inside that so it is never clipped mid-sentence. */
+  description: 'Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật. Không gửi dữ liệu cá nhân ra ngoài.',
+  icons: {
+    16: 'icons/icon16.png',
+    32: 'icons/icon32.png',
+    48: 'icons/icon48.png',
+    128: 'icons/icon128.png',
+  },
+  action: {
+    default_title: 'Mở bảng đổi code Delta Force',
+    default_popup: 'popup.html',
+    /* Without an explicit action icon set Chrome rescales the 128 for the
+     * toolbar, which blurs the mark; 16/32 are hand-tuned for that slot. */
+    default_icon: {
+      16: 'icons/icon16.png',
+      32: 'icons/icon32.png',
+      48: 'icons/icon48.png',
+    },
+  },
   permissions: ['storage', 'scripting', 'activeTab', 'tabs'],
   /* The vault hosts are listed so the extension pages can read the published
    * code list and report verdicts. Kept as narrow literals rather than a wildcard
@@ -281,8 +301,17 @@ const manifest = {
     'https://raw.githubusercontent.com/huuhungn/df-redeem/*',
     'https://df-redeem-vault.huuhungn.workers.dev/*',
   ],
+  /* Spelling out the default MV3 policy documents that nothing here needs eval
+   * or remote script, and makes any future loosening an explicit, reviewable
+   * change rather than a silent one. */
+  content_security_policy: {
+    extension_pages: "script-src 'self'; object-src 'self'",
+  },
   background: { service_worker: 'background.js' },
-  options_page: 'options.html',
+  options_ui: { page: 'options.html', open_in_tab: true },
+  /* MV3 service workers plus `world: 'MAIN'` content scripts require 111+; below
+   * that the panel silently never mounts, so fail at install time instead. */
+  minimum_chrome_version: '111',
   content_scripts: [{
     matches: ['https://redeem.df.garena.sg/*'],
     js: ['content.js'],
@@ -298,6 +327,12 @@ const manifest = {
     run_at: 'document_idle',
     world: 'ISOLATED',
     all_frames: false,
+  }],
+  /* Keeps the panel's own assets out of reach of the page: only the redeem page
+   * may load them, and only these files are exposed. */
+  web_accessible_resources: [{
+    resources: ['icons/icon128.png'],
+    matches: ['https://redeem.df.garena.sg/*'],
   }],
 };
 
@@ -1024,6 +1059,28 @@ for (const rel of scripts) {
 if (broken.length) {
   console.error('\nBUILD FAILED — generated scripts do not parse:');
   for (const b of broken) console.error('  ' + b);
+  process.exit(1);
+}
+
+/* ── icon gate ──────────────────────────────────────────────────────────────
+ * Every size named in the manifest must exist on disk: Chrome refuses to load
+ * an unpacked extension whose icon path is missing, and a stale icon set after
+ * a rename is easy to miss because the build itself still succeeds. The set is
+ * produced by tools/make-icons.py (geometric, so 16px stays pixel-exact). */
+const iconSizes = new Set([
+  ...Object.keys(manifest.icons),
+  ...Object.keys((manifest.action && manifest.action.default_icon) || {}),
+]);
+const missingIcons = [];
+for (const size of iconSizes) {
+  const file = path.join(EXT, 'icons', `icon${size}.png`);
+  if (!fs.existsSync(file)) missingIcons.push(path.relative(ROOT, file));
+  else if (fs.statSync(file).size < 100) missingIcons.push(path.relative(ROOT, file) + ' (empty)');
+}
+if (missingIcons.length) {
+  console.error('\nBUILD FAILED — manifest references missing icons:');
+  for (const m of missingIcons) console.error('  ' + m);
+  console.error('  run: python tools/make-icons.py extension/icons');
   process.exit(1);
 }
 console.log(`syntax ok — ${scripts.length} generated scripts parse`);

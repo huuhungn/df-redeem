@@ -278,6 +278,32 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
       dupOutcomes.length === 2 && dupOutcomes[0].confirmations === 1 && dupOutcomes[1].confirmations === 1,
       JSON.stringify(dupOutcomes));
 
+    /* Re-pushing a vault must not rewrite rows that did not move: whole-vault
+     * pushes at ~290 writes each exhausted the daily KV put() quota, after which
+     * every submission failed with a 500. */
+    const dedupeIp = asClient('10.0.0.77');
+    const firstPush = await post('/submit-batch', {
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+    }, dedupeIp);
+    const firstRow = ((firstPush.json && firstPush.json.results) || [])[0] || {};
+    check('a first report is written', firstRow.unchanged === false, JSON.stringify(firstRow));
+
+    const repeatPush = await post('/submit-batch', {
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+    }, dedupeIp);
+    const repeatRow = ((repeatPush.json && repeatPush.json.results) || [])[0] || {};
+    check('the same reporter re-sending the same verdict is not rewritten',
+      repeatRow.unchanged === true, JSON.stringify(repeatRow));
+    check('a no-op re-report keeps the confirmation count stable',
+      repeatRow.confirmations === 1, JSON.stringify(repeatRow));
+
+    const otherPush = await post('/submit-batch', {
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+    }, asClient('10.0.0.78'));
+    const otherRow = ((otherPush.json && otherPush.json.results) || [])[0] || {};
+    check('a second independent reporter still counts and is written',
+      otherRow.unchanged === false && otherRow.confirmations === 2, JSON.stringify(otherRow));
+
     /* A whole vault took ~175s when every row was written strictly sequentially,
      * which no client waits for; the handler now runs independent codes in waves. */
     const bulkRows = [];

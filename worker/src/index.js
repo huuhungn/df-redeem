@@ -115,16 +115,25 @@ async function recordVerdict(env, rawCode, rawErr, fingerprint) {
 
   /* A verdict flip (e.g. a code that worked yesterday is exhausted today) restarts
    * the count rather than mixing disagreeing reports into one total. */
-  if (existing.verdict !== verdict) {
+  const flipped = existing.verdict !== verdict;
+  if (flipped) {
     existing.verdict = verdict;
     existing.reporters = [];
   }
-  if (!existing.reporters.includes(fingerprint)) existing.reporters.push(fingerprint);
-  existing.updated_at = new Date().toISOString();
-  existing.confirmations = existing.reporters.length;
-  existing.promoted = existing.confirmations >= CONFIRMATIONS_REQUIRED;
+  const isNewReporter = !existing.reporters.includes(fingerprint);
+  if (isNewReporter) existing.reporters.push(fingerprint);
 
-  await env.VAULT.put(key, JSON.stringify(existing), { expirationTtl: PENDING_TTL_SECONDS });
+  /* Re-reporting a verdict already on file changes nothing, and clients push their
+   * whole vault every time. Writing anyway burned ~290 KV writes per push and hit
+   * the daily put() quota after three pushes, which then failed every submission
+   * with a 500. Only write when the row actually moved. */
+  const changed = flipped || isNewReporter || !existing.updated_at;
+  if (changed) {
+    existing.updated_at = new Date().toISOString();
+    existing.confirmations = existing.reporters.length;
+    existing.promoted = existing.confirmations >= CONFIRMATIONS_REQUIRED;
+    await env.VAULT.put(key, JSON.stringify(existing), { expirationTtl: PENDING_TTL_SECONDS });
+  }
 
   return {
     ok: true,
@@ -134,6 +143,8 @@ async function recordVerdict(env, rawCode, rawErr, fingerprint) {
     confirmations: existing.confirmations,
     needed: CONFIRMATIONS_REQUIRED,
     promoted: existing.promoted,
+    /* Lets a client tell "already on file" apart from "your report counted". */
+    unchanged: !changed,
   };
 }
 
