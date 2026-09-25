@@ -174,6 +174,8 @@ ${UI}
      * full-page app and the popup can show a run done here. */
     mirrorAttempts: (rows) => askBridge('mirrorAttempts', { rows }),
     readMirror: () => askBridge('readMirror'),
+    communityPull: () => askBridge('communityPull'),
+    communityPush: (rows) => askBridge('communityPush', { rows }),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -244,7 +246,14 @@ const manifest = {
   icons: { 16: 'icons/icon16.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' },
   action: { default_title: 'Mở bảng đổi code Delta Force', default_popup: 'popup.html' },
   permissions: ['storage', 'scripting', 'activeTab', 'tabs'],
-  host_permissions: ['https://redeem.df.garena.sg/*'],
+  /* The vault hosts are listed so the extension pages can read the published
+   * code list and report verdicts. Kept as narrow literals rather than a wildcard
+   * so a review of this manifest shows exactly where data can travel. */
+  host_permissions: [
+    'https://redeem.df.garena.sg/*',
+    'https://raw.githubusercontent.com/huuhungn/df-redeem/*',
+    'https://df-redeem-vault.huuhungn.workers.dev/*',
+  ],
   background: { service_worker: 'background.js' },
   options_page: 'options.html',
   content_scripts: [{
@@ -418,6 +427,8 @@ ${UI}
   const sync = {
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
     mirrorAttempts: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'mirrorAttempts', payload: { rows } }),
+    communityPull: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPull' }),
+    communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
   const panel = createPanel({ version: '${VERSION}', target: 'page', surface: 'page', sync });
   const host = document.getElementById('page-view');
@@ -843,6 +854,26 @@ async function handleSync(op, payload) {
     return { ok: true };
   }
   if (op === 'status') return svc.status();
+
+  /* ── community vault ─────────────────────────────────────────────────────
+   * Network access lives here rather than in the drawer: the service worker has
+   * the host permissions, and the Garena page's CSP would block these fetches. */
+  if (op === 'communityPull') {
+    const result = await svc.fetchCommunity(current);
+    if (!result.ok) return { ok: false, error: result.error || result.skipped || 'không tải được' };
+    return { ok: true, codes: result.codes, presets: result.presets };
+  }
+  if (op === 'communityPush') {
+    const rows = (payload && payload.rows) || [];
+    const result = await svc.reportOutcomes(rows, current);
+    return {
+      ok: Boolean(result.ok),
+      sent: Number(result.sent || 0),
+      failed: Number(result.failed || 0),
+      skipped: result.skipped || null,
+      error: result.error || (result.failures && result.failures[0]) || null,
+    };
+  }
 
   /* ── cross-origin history mirror ─────────────────────────────────────────
    * The drawer runs on the Garena origin and the app/popup on

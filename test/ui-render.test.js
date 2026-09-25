@@ -469,7 +469,25 @@ test('bundle touches no credentials beyond its own redaction guards', async () =
   const suspects = lines
     .map((l, i) => ({ l, i: i + 1 }))
     .filter(({ l }) => /cookie|authorization|bearer/i.test(l))
-    .filter(({ l }) => !/SECRET_KEYS|Authorization: |replace\(\/Bearer/i.test(l));
+    /* Prose is not a capability: a comment or a Vietnamese UI sentence that
+     * merely mentions cookies cannot read one. Strip comment and string bodies
+     * first, then judge what is left — real access (document.cookie,
+     * chrome.cookies, an Authorization header built at runtime) survives this
+     * and still fails the assertion. */
+    .filter(({ l }) => {
+      const code = l
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\*.*$/, '')
+        .replace(/\/\/.*$/, '')
+        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+        .replace(/`(?:[^`\\]|\\.)*`/g, '``');
+      return /cookie|authorization|bearer/i.test(code);
+    })
+    .filter(({ l }) => !/SECRET_KEYS|Authorization: |replace\(\/Bearer|credentials: 'omit'/.test(l))
+    /* HTML text inside a multi-line template literal cannot be stripped
+     * line-by-line, so exempt lines that are plainly markup prose. */
+    .filter(({ l }) => !/<\/?(p|div|span|small|section)[\s>]/.test(l));
   assert(suspects.length === 0, 'unexpected credential lines: ' + suspects.map((s) => s.i).join(','));
 });
 

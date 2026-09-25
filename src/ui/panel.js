@@ -24,6 +24,7 @@ function createPanel(options) {
   const E = root.DFRedeemEngine;
   const V = root.DFRedeemVault;
   const G = root.DFRedeemGarena;   /* verdict labels + verdict→vault status map */
+  const S = root.DFRedeemSync;     /* community merge helper; absent in bare tests */
 
   const PAGE_SIZE = 50;
   const VIEWS = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
@@ -615,6 +616,16 @@ function createPanel(options) {
 
     viewHost.innerHTML = `<div class="pad">
       <section class="card">
+        <div class="card-hd"><h3>Kho cộng đồng</h3><span class="muted community-count"></span></div>
+        <p class="muted tight">Tải danh sách mã mọi người đã kiểm chứng về máy, và gửi kết quả của bạn lên để người khác khỏi thử lại mã đã chết. Chỉ gửi mã và mã lỗi Garena trả về — không gửi tài khoản, cookie hay thời điểm.</p>
+        <div class="btnrow">
+          <button class="act primary" data-act="community-pull">Tải mã mới về</button>
+          <button class="act" data-act="community-push">Gửi kết quả của tôi</button>
+        </div>
+        <p class="muted tight community-status"></p>
+      </section>
+
+      <section class="card">
         <div class="card-hd"><h3>Gift code chia sẻ được</h3><span class="muted">${gifts.length} mã</span></div>
         <p class="muted tight">Gồm mã Garena đã xác nhận thành công và mã tài khoản này đã nhận — người khác vẫn đổi được.</p>
         <div class="sharebox">
@@ -892,6 +903,55 @@ function createPanel(options) {
       return;
     }
     if (act === 'stop') { if (activeRun) { activeRun.stop('Người dùng dừng.'); toast('Đang dừng…', 'warn'); } return; }
+
+    /* community vault */
+    if (act === 'community-pull') {
+      if (!opts.sync || !opts.sync.communityPull) return toast('Bản này không có kho cộng đồng.', 'warn');
+      const note = $('.community-status');
+      if (note) note.textContent = 'Đang tải…';
+      try {
+        const reply = await opts.sync.communityPull();
+        if (!reply || !reply.ok) throw new Error((reply && reply.error) || 'không tải được');
+        if (!S || !S.mergeCommunityCodes) throw new Error('thiếu module sync');
+        const merged = S.mergeCommunityCodes(cache.codes, reply.codes || []);
+        for (const row of merged.rows) {
+          if (row.source === 'community') await vault.upsert(row);
+        }
+        await refresh();
+        go('share');
+        const msg = `Thêm ${merged.added} mã mới, cập nhật ${merged.updated} mã.`;
+        toast(msg, 'ok');
+        const after = $('.community-status');
+        if (after) after.textContent = msg;
+      } catch (error) {
+        const msg = 'Không tải được kho cộng đồng: ' + String(error && error.message || error);
+        toast(msg, 'err');
+        const after = $('.community-status');
+        if (after) after.textContent = msg;
+      }
+      return;
+    }
+    if (act === 'community-push') {
+      if (!opts.sync || !opts.sync.communityPush) return toast('Bản này không có kho cộng đồng.', 'warn');
+      const note = $('.community-status');
+      if (note) note.textContent = 'Đang gửi…';
+      try {
+        const reply = await opts.sync.communityPush(cache.codes);
+        if (!reply || !reply.ok) throw new Error((reply && reply.error) || (reply && reply.skipped) || 'không gửi được');
+        const msg = reply.sent
+          ? `Đã gửi ${reply.sent} kết quả. Mã mới cần 2 người xác nhận mới vào kho chung.`
+          : 'Không có kết quả nào cần gửi — kho của bạn đã khớp với cộng đồng.';
+        toast(msg, 'ok');
+        const after = $('.community-status');
+        if (after) after.textContent = msg;
+      } catch (error) {
+        const msg = 'Không gửi được: ' + String(error && error.message || error);
+        toast(msg, 'err');
+        const after = $('.community-status');
+        if (after) after.textContent = msg;
+      }
+      return;
+    }
 
     /* share */
     if (act === 'share-copy-gift') return copy($('.share-gift').value, 'danh sách gift code');

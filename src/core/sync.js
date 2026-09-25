@@ -22,7 +22,7 @@ const DFRedeemSync = (function attachSync(root) {
     communityEnabled: true,
     communityDataUrl: 'https://raw.githubusercontent.com/huuhungn/df-redeem/main/data/codes.json',
     communityPresetsUrl: 'https://raw.githubusercontent.com/huuhungn/df-redeem/main/data/presets.json',
-    communityReportUrl: '',
+    communityReportUrl: 'https://df-redeem-vault.huuhungn.workers.dev/submit',
     communityContribute: true,
   });
 
@@ -121,6 +121,57 @@ const DFRedeemSync = (function attachSync(root) {
     const url = new URL(endpoint);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Endpoint phải dùng HTTP hoặc HTTPS.');
     return url.origin;
+  }
+
+  /* A verdict is only shareable when it is true for everyone. 'mine' means
+   * "this account already redeemed it", which is useless (and mildly
+   * identifying) to other users, so it never leaves the machine. */
+  const SHAREABLE_STATUS = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
+
+  /* Fold the community list into local records: it may only ever ADD codes the
+   * user has never tried, or mark a locally-untried code as already dead. A
+   * remote row must never overwrite a verdict this machine observed first-hand,
+   * because the local observation is the stronger evidence. */
+  function mergeCommunityCodes(localRecords, communityCodes) {
+    const byCode = new Map((Array.isArray(localRecords) ? localRecords : []).map((row) => [String(row.code).toUpperCase(), row]));
+    let added = 0;
+    let updated = 0;
+
+    for (const remote of Array.isArray(communityCodes) ? communityCodes : []) {
+      const code = String(remote && remote.code || '').trim().toUpperCase();
+      if (!code) continue;
+      const status = String(remote && remote.status || '');
+      if (!SHAREABLE_STATUS.has(status)) continue;
+
+      const local = byCode.get(code);
+      if (!local) {
+        byCode.set(code, {
+          code,
+          kind: 'giftcode',
+          /* Someone else's success is still untried *here*, so the user can
+           * redeem it themselves. Dead verdicts carry over as-is to save a
+           * pointless request. */
+          status: status === 'success' ? 'untried' : status,
+          source: 'community',
+          err_code: status === 'success' ? 0 : Number(remote.err_code || 0),
+          attempt_count: 0,
+          shareable: status === 'success',
+          tags: ['community'],
+          notes: '',
+        });
+        added += 1;
+        continue;
+      }
+
+      if (String(local.status || '') === 'untried' && status !== 'success') {
+        local.status = status;
+        local.err_code = Number(remote.err_code || 0);
+        local.source = local.source || 'community';
+        updated += 1;
+      }
+    }
+
+    return { records: [...byCode.values()], added, updated };
   }
 
   function createSyncService(options) {
@@ -238,7 +289,6 @@ const DFRedeemSync = (function attachSync(root) {
     /* A verdict is only shareable when it is true for everyone. 'mine' means
      * "this account already redeemed it", which is useless (and mildly
      * identifying) to other users, so it never leaves the machine. */
-    const SHAREABLE_STATUS = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
 
     async function fetchCommunity(settingsOverride) {
       const raw = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
@@ -306,56 +356,12 @@ const DFRedeemSync = (function attachSync(root) {
       return { ok: failures.length === 0, sent, failed: failures.length, failures: failures.slice(0, 5) };
     }
 
-    /* Fold the community list into local records: it may only ever ADD codes the
-     * user has never tried, or mark a locally-untried code as already dead. A
-     * remote row must never overwrite a verdict this machine observed first-hand,
-     * because the local observation is the stronger evidence. */
-    function mergeCommunityCodes(localRecords, communityCodes) {
-      const byCode = new Map((Array.isArray(localRecords) ? localRecords : []).map((row) => [String(row.code).toUpperCase(), row]));
-      let added = 0;
-      let updated = 0;
-
-      for (const remote of Array.isArray(communityCodes) ? communityCodes : []) {
-        const code = String(remote && remote.code || '').trim().toUpperCase();
-        if (!code) continue;
-        const status = String(remote && remote.status || '');
-        if (!SHAREABLE_STATUS.has(status)) continue;
-
-        const local = byCode.get(code);
-        if (!local) {
-          byCode.set(code, {
-            code,
-            kind: 'giftcode',
-            /* Someone else's success is still untried *here*, so the user can
-             * redeem it themselves. Dead verdicts carry over as-is to save a
-             * pointless request. */
-            status: status === 'success' ? 'untried' : status,
-            source: 'community',
-            err_code: status === 'success' ? 0 : Number(remote.err_code || 0),
-            attempt_count: 0,
-            shareable: status === 'success',
-            tags: ['community'],
-            notes: '',
-          });
-          added += 1;
-          continue;
-        }
-
-        if (String(local.status || '') === 'untried' && status !== 'success') {
-          local.status = status;
-          local.err_code = Number(remote.err_code || 0);
-          local.source = local.source || 'community';
-          updated += 1;
-        }
-      }
-
-      return { records: [...byCode.values()], added, updated };
-    }
-
     return { registerBackend, syncNow, status, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY } };
   }
 
-  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService };
+  /* mergeCommunityCodes is pure, so expose it at module level too: UI surfaces
+   * need it without constructing a storage-backed service. */
+  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
   };
 
   const api = factory();

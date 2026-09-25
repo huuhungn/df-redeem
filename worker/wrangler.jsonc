@@ -6,8 +6,8 @@
   "kv_namespaces": [
     {
       "binding": "VAULT",
-      "//": "Replace with the real id from `wrangler kv namespace create VAULT` before deploying. `wrangler dev --local` ignores the id and uses on-disk KV.",
-      "id": "0000000000000000000000000000000d"
+      "//": "Created with `wrangler kv namespace create VAULT`. `wrangler dev --local` ignores this id and uses on-disk KV.",
+      "id": "7b1870e0141c4fa288808bbd02d8deae"
     }
   ],
   "vars": {
