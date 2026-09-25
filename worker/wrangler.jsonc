@@ -5,12 +5,11 @@
   "observability": { "enabled": true },
   "kv_namespaces": [
     {
+      // Created with `wrangler kv namespace create VAULT`.
+      // `wrangler dev --local` ignores this id and uses on-disk KV.
       "binding": "VAULT",
-      "//": "Created with `wrangler kv namespace create VAULT`. `wrangler dev --local` ignores this id and uses on-disk KV.",
       "id": "7b1870e0141c4fa288808bbd02d8deae"
     }
-  ],
-  "vars": {
-    "//": "IP_SALT and ADMIN_TOKEN are secrets, set with `wrangler secret put`, never here."
-  }
+  ]
+  // IP_SALT and ADMIN_TOKEN are secrets, set with `wrangler secret put`, never here.
 }

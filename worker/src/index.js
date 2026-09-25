@@ -21,17 +21,11 @@ const CODE_RE = /^[A-Z0-9]{6,32}$/;
 
 /* Verdicts a client may report, mapped from Garena's own error numbers. A client
  * cannot invent a status string — it reports err_code and the Worker decides. */
-const VERDICT_BY_ERR = new Map([
-  [0, 'success'],
-  [400067, 'account_already'],   // per-account, never published
-  [400054, 'expired'],
-  [400068, 'invalid'],
-  [400073, 'exhausted'],
-  [400058, 'gift_bug'],
-]);
+import { VERDICT_BY_ERR, PER_ACCOUNT, TRANSIENT } from './verdicts.js';
 
-/* Only these travel to the repo. account_already is deliberately absent: it is
- * true for one account only and says nothing about the code itself. */
+/* Verdicts that may appear in the published file. 'exhausted' has no err_code
+ * mapped to it any more (400073 is gift_bug, per garena.js) but rows carrying it
+ * exist in the seed, so it stays readable — it simply cannot be newly submitted. */
 const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
 
 /* A code is promoted once this many *independent* clients agree on a verdict.
@@ -100,21 +94,29 @@ async function handleSubmit(request, env) {
   }
 
   const errCode = Number(payload && payload.err_code);
-  if (!VERDICT_BY_ERR.has(errCode)) {
+  /* Three outcomes, kept apart on purpose:
+   *   publishable  → queued for confirmation
+   *   per-account  → accepted, never queued (true for one account only)
+   *   transient    → accepted, never queued (says nothing about the code)
+   * Anything else is rejected rather than guessed. */
+  const isPerAccount = PER_ACCOUNT.has(errCode);
+  const isTransient = TRANSIENT.has(errCode);
+  if (!VERDICT_BY_ERR.has(errCode) && !isPerAccount && !isTransient) {
     return json({ ok: false, error: `unknown err_code ${errCode}` }, { status: 400 });
   }
-  const verdict = VERDICT_BY_ERR.get(errCode);
 
   const fingerprint = await clientFingerprint(request, env);
   if (await rateLimited(env, fingerprint)) {
     return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
   }
 
-  /* account_already is accepted (so the client is not told its report was junk)
-   * but deliberately not queued: it is per-account and unpublishable. */
-  if (!PUBLISHABLE.has(verdict)) {
+  if (isPerAccount) {
     return json({ ok: true, queued: false, reason: 'verdict is account-specific' });
   }
+  if (isTransient) {
+    return json({ ok: true, queued: false, reason: 'verdict is transient' });
+  }
+  const verdict = VERDICT_BY_ERR.get(errCode);
 
   const key = `pending:${code}`;
   const existing = JSON.parse((await env.VAULT.get(key)) || 'null') || {

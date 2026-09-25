@@ -110,6 +110,33 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
       perAccount.status === 200 && perAccount.json.ok === true && perAccount.json.queued === false,
       JSON.stringify(perAccount.json));
 
+    /* ---- the verdict map must match garena.js --------------------------- */
+    /* These pairings are counter-intuitive (400054 is INVALID, 400068 is EXPIRED)
+     * and were wrong in an earlier revision, which would have published a wrong
+     * verdict to every user. Pin them. */
+    for (const [errCode, expected] of [[0, 'success'], [400054, 'invalid'], [400068, 'expired'], [400073, 'gift_bug']]) {
+      const probe = await post('/submit', { code: 'DFMAP' + errCode, err_code: errCode }, asClient('10.0.9.' + (errCode % 200)));
+      check(`err_code ${errCode} maps to ${expected}`,
+        probe.json && probe.json.verdict === expected,
+        JSON.stringify(probe.json));
+    }
+
+    /* ---- transient codes are accepted but never published ---------------- */
+    for (const errCode of [400001, 401009]) {
+      const probe = await post('/submit', { code: 'DFTRANSIENT1', err_code: errCode }, asClient('10.0.8.' + (errCode % 200)));
+      check(`transient err_code ${errCode} is accepted but not queued`,
+        probe.status === 200 && probe.json.ok === true && probe.json.queued === false,
+        JSON.stringify(probe.json));
+    }
+
+    /* ---- every per-account code is accepted but never queued ------------- */
+    for (const errCode of [400067, 400069, 400055, 400056, 400050]) {
+      const probe = await post('/submit', { code: 'DFPERACCT001', err_code: errCode }, asClient('10.0.7.' + (errCode % 200)));
+      check(`per-account err_code ${errCode} is not queued`,
+        probe.status === 200 && probe.json.ok === true && probe.json.queued === false,
+        JSON.stringify(probe.json));
+    }
+
     /* ---- confirmation rule ---------------------------------------------- */
     const uniq = 'DF' + Date.now().toString(36).toUpperCase().slice(-8);
     const first = await post('/submit', { code: uniq, err_code: 0 }, asClient('10.0.0.11'));
@@ -128,9 +155,11 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
       JSON.stringify(second.json));
 
     /* ---- verdict disagreement restarts the count ------------------------ */
+    /* 400073 is gift_bug per garena.js, so this is a genuine flip away from the
+     * earlier verdict and must reset the tally rather than add to it. */
     const flip = await post('/submit', { code: uniq, err_code: 400073 }, asClient('10.0.0.13'));
     check('a changed verdict restarts confirmations',
-      flip.json && flip.json.verdict === 'exhausted' && flip.json.confirmations === 1 && flip.json.promoted === false,
+      flip.json && flip.json.verdict === 'gift_bug' && flip.json.confirmations === 1 && flip.json.promoted === false,
       JSON.stringify(flip.json));
 
     /* ---- admin surface -------------------------------------------------- */

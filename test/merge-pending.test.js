@@ -119,7 +119,7 @@ async function waitForReady(timeoutMs) {
     await submit(target.code, 400073, '10.2.0.2');
     runMerge();
     const flipped = readDoc().codes.find((r) => r.code === target.code);
-    check('a community-confirmed verdict change updates the row', flipped && flipped.status === 'exhausted',
+    check('a community-confirmed verdict change updates the row', flipped && flipped.status === 'gift_bug',
       JSON.stringify(flipped));
 
     /* An account-specific verdict must never appear in public data. */
