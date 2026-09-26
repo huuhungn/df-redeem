@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.1.0';
+const VERSION = '3.1.1';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';

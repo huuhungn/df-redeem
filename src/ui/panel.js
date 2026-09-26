@@ -13,7 +13,7 @@
 
 function createPanel(options) {
   const opts = options || {};
-  const version = opts.version || '3.1.0';
+  const version = opts.version || '3.1.1';
   const surface = opts.surface || 'drawer'; // drawer | page | popup
   const store = opts.store || {
     get: (k, d) => { try { const v = localStorage.getItem('dfRedeem:' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
