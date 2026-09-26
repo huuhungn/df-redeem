@@ -28,9 +28,6 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # Without the endpoint configured this job can only fail; skip it instead of
-    # emailing the owner a red X every 6 hours on a fresh fork.
-    if: vars.VAULT_URL != ''
     steps:
       - uses: actions/checkout@v4
 
@@ -38,11 +35,31 @@ jobs:
         with:
           node-version: '20'
 
+      # The job used to be gated on `vars.VAULT_URL != ''` while the deployment
+      # actually stores the endpoint in the secret GH_VAULT_ENDPOINT (as the
+      # README instructs). The variable was therefore always empty, the gate never
+      # opened, and every scheduled run reported success while doing nothing — the
+      # queue sat at 291 rows for a day with a green tick. Secrets cannot be read
+      # in a job-level `if`, so check inside a step and skip the rest explicitly.
+      - name: Check the vault is configured
+        id: config
+        env:
+          VAULT_URL: ${{ secrets.GH_VAULT_ENDPOINT }}
+          VAULT_ADMIN_TOKEN: ${{ secrets.GH_VAULT_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$VAULT_URL" ] || [ -z "$VAULT_ADMIN_TOKEN" ]; then
+            echo "::notice::GH_VAULT_ENDPOINT / GH_VAULT_ADMIN_TOKEN are not set; nothing to sync"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge promoted rows
         id: merge
+        if: steps.config.outputs.ready == 'true'
         env:
-          VAULT_URL: ${{ vars.VAULT_URL }}
-          VAULT_ADMIN_TOKEN: ${{ secrets.VAULT_ADMIN_TOKEN }}
+          VAULT_URL: ${{ secrets.GH_VAULT_ENDPOINT }}
+          VAULT_ADMIN_TOKEN: ${{ secrets.GH_VAULT_ADMIN_TOKEN }}
         run: |
           set -o pipefail
           ARGS=""

@@ -200,6 +200,25 @@ async function waitForPortFree() {
       batch.json && batch.json.results && batch.json.results[0]
         && batch.json.results[0].promoted === true,
       JSON.stringify(batch.json));
+
+    /* The publish side has to agree with the threshold, or lowering it just moves
+     * the stall downstream: tools/merge-pending.js hardcoded a minimum of 2 and
+     * silently rejected every row this Worker promoted. It reads /health now, so
+     * assert the contract that makes that possible is actually served. */
+    const contract = await get('/health');
+    check('/health publishes the threshold the merge tool reads',
+      contract.json && contract.json.confirmations_required === 1,
+      JSON.stringify(contract.json));
+
+    /* And the rows really are offered for publication, not merely flagged. */
+    const offered = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
+    const offeredCodes = (offered.json && offered.json.rows || []).map((r) => r.code);
+    check('every solo-promoted row is offered on /pending',
+      ['DFMIGRATE0001', SOLO, 'DFBATCHSOLO01'].every((c) => offeredCodes.includes(c)),
+      JSON.stringify(offeredCodes));
+    check('/pending reports confirmations the merge tool can compare',
+      (offered.json && offered.json.rows || []).every((r) => Number(r.confirmations) >= 1),
+      JSON.stringify(offered.json && offered.json.rows));
   } catch (error) {
     failed += 1;
     console.log('FAIL harness threw — ' + (error && error.message));

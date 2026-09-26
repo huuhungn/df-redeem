@@ -26,11 +26,15 @@ const check = (name, condition, detail) => {
   else { failed += 1; console.log(`FAIL ${name}${detail ? ' — ' + detail : ''}`); }
 };
 
+/* Reporters are told apart by install_id now, not by IP; the IP only picks the
+ * rate-limit bucket. Derive a stable install id per caller so each distinct ip
+ * argument still means a distinct reporter and the cases below read the same. */
+const installFor = (ip) => `44444444-3333-4222-8111-${ip.replace(/\D/g, '').padStart(12, '0').slice(-12)}`;
 const submit = (code, errCode, ip) =>
   fetch(BASE + '/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
-    body: JSON.stringify({ code, err_code: errCode }),
+    body: JSON.stringify({ code, err_code: errCode, install_id: installFor(ip) }),
   }).then((r) => r.json());
 
 const runMerge = (extraArgs) =>
@@ -70,7 +74,11 @@ async function waitForReady(timeoutMs) {
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
     ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', STATE_DIR,
-      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:merge-salt'],
+      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:merge-salt',
+      /* Pinned to 2 so "under-confirmed" still means something here. The script
+       * reads the threshold from /health, so this also proves it honours a value
+       * that differs from the one wrangler.jsonc ships. */
+      '--var', 'CONFIRMATIONS_REQUIRED:2'],
     { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
   );
   let log = '';
@@ -136,6 +144,12 @@ async function waitForReady(timeoutMs) {
     const flipped = readDoc().codes.find((r) => r.code === target.code);
     check('a community-confirmed verdict change updates the row', flipped && flipped.status === 'gift_bug',
       JSON.stringify(flipped));
+    /* err_code used to be hardcoded to 0 on every write, so a gift_bug row shipped
+     * carrying the success error number and contradicted its own status. */
+    check('the updated row carries the err_code its verdict implies',
+      flipped && flipped.err_code === 400073, JSON.stringify(flipped));
+    check('the added success row carries err_code 0',
+      added && added.err_code === 0, JSON.stringify(added));
 
     /* An account-specific verdict must never appear in public data. */
     const personal = 'DFMINE' + Date.now().toString(36).toUpperCase().slice(-6);

@@ -1080,7 +1080,28 @@ for (const size of iconSizes) {
 if (missingIcons.length) {
   console.error('\nBUILD FAILED — manifest references missing icons:');
   for (const m of missingIcons) console.error('  ' + m);
-  console.error('  run: python tools/make-icons.py extension/icons');
+  /* make-icons.py needs Pillow, and the first `python` on PATH often does not
+   * have it (here it is a Hermes-bundled build). Printing a bare `python` sends
+   * the reader into a ModuleNotFoundError, so name an interpreter that actually
+   * imports PIL. Probe candidates rather than hardcoding one machine's path. */
+  const candidates = process.platform === 'win32'
+    ? ['python', 'py -3.12', 'py -3', 'python3']
+    : ['python3', 'python'];
+  let runner = null;
+  for (const candidate of candidates) {
+    const parts = candidate.split(' ');
+    try {
+      execFileSync(parts[0], [...parts.slice(1), '-c', 'import PIL'], { stdio: 'ignore' });
+      runner = candidate;
+      break;
+    } catch { /* missing interpreter or missing Pillow — try the next */ }
+  }
+  if (runner) {
+    console.error(`  run: ${runner} tools/make-icons.py extension/icons`);
+  } else {
+    console.error('  run: <python-with-Pillow> tools/make-icons.py extension/icons');
+    console.error('  no interpreter on PATH could import PIL — pip install Pillow');
+  }
   process.exit(1);
 }
 console.log(`syntax ok — ${scripts.length} generated scripts parse`);

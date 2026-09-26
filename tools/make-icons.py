@@ -9,15 +9,18 @@ Mark: a delta (triangle) cut out of a rounded-square plate, with a notch that
 reads as a code slot. Palette is taken from src/ui/theme.css so the toolbar icon
 matches the drawer.
 
-Requires Pillow. On this machine a bare `python` resolves to the Hermes-bundled
-3.14 interpreter, which does NOT have Pillow, so `python tools/make-icons.py`
-fails with ModuleNotFoundError even though Pillow is installed. Pillow lives in
-Python312:
+Requires Pillow, and the interpreter matters: a bare `python` is often NOT the
+one that has it. Here `python` resolves to the Hermes-bundled 3.14 build, which
+has no Pillow, so `python tools/make-icons.py` dies with ModuleNotFoundError
+even though Pillow is installed on the machine. Pillow lives in Python312:
 
-    "C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" \\
-        tools/make-icons.py extension/icons
+    py -3.12 tools/make-icons.py extension/icons
 
 The guard below turns that into a readable message instead of a bare traceback.
+Two other places in the repo learned the same lesson: build.js probes for an
+interpreter that can `import PIL` before telling you to re-run this script, and
+test/manifest.test.js decodes PNGs with Node's zlib rather than Pillow so the
+icon symmetry check cannot silently skip itself.
 """
 import math
 import os
@@ -28,8 +31,10 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
     sys.exit(
         f'{exc.name} is missing from {sys.executable}.\n'
-        'Pillow is required. On this machine a bare `python` is the Hermes 3.14 build '
-        'without Pillow; use the Python312 interpreter instead:\n'
+        'Pillow is required. A bare `python` here is the Hermes 3.14 build without '
+        'Pillow; use an interpreter that has it:\n'
+        '  py -3.12 tools/make-icons.py extension/icons\n'
+        'or by full path:\n'
         '  "C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" '
         'tools/make-icons.py extension/icons'
     )

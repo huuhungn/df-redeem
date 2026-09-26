@@ -26,6 +26,23 @@ const TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
 const CODE_RE = /^[A-Z0-9]{6,32}$/;
 
+/* /pending reports a verdict, not the Garena error number behind it, so the
+ * err_code written into the published row has to be derived from the verdict.
+ * It used to be hardcoded to 0 — the code for *success* — which stamped every
+ * expired or invalid row with a success error number and contradicted its own
+ * status field. Mirrors VERDICT_BY_ERR in worker/src/verdicts.js; 'exhausted'
+ * has no current err_code (400069 is per-account and never published) so seed
+ * rows carrying it keep whatever they already had. */
+const ERR_BY_VERDICT = new Map([
+  ['success', 0],
+  ['invalid', 400054],
+  ['expired', 400068],
+  ['gift_bug', 400073],
+]);
+function errCodeFor(verdict, fallback) {
+  return ERR_BY_VERDICT.has(verdict) ? ERR_BY_VERDICT.get(verdict) : (fallback != null ? fallback : 0);
+}
+
 function fail(message) {
   console.error('merge-pending: ' + message);
   process.exit(1);
@@ -41,6 +58,27 @@ async function main() {
   const rows = Array.isArray(payload && payload.rows) ? payload.rows : [];
   console.log(`worker offers ${rows.length} promoted row(s)`);
 
+  /* The minimum confirmation count was hardcoded to 2 here while the Worker read
+   * its own threshold from the environment. Lowering the Worker's threshold then
+   * did nothing: it promoted rows that this script silently rejected as
+   * under-confirmed, and the queue never drained. Ask the Worker what it requires
+   * so the two cannot disagree. /health is unauthenticated and cheap. */
+  let required = 2;
+  try {
+    const health = await fetch(`${VAULT_URL}/health`);
+    if (health.ok) {
+      const body = await health.json();
+      const reported = Number(body && body.confirmations_required);
+      if (Number.isFinite(reported) && reported >= 1) required = reported;
+      else console.log('warning: /health did not report confirmations_required; assuming 2');
+    } else {
+      console.log(`warning: /health returned HTTP ${health.status}; assuming 2 confirmations`);
+    }
+  } catch (error) {
+    console.log(`warning: /health unreachable (${error && error.message}); assuming 2 confirmations`);
+  }
+  console.log(`confirmations required: ${required}`);
+
   const doc = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
   const codes = Array.isArray(doc.codes) ? doc.codes : [];
   const byCode = new Map(codes.map((row) => [row.code, row]));
@@ -55,7 +93,7 @@ async function main() {
     const verdict = String(row && row.verdict || '');
     const confirmations = Number(row && row.confirmations || 0);
 
-    if (!CODE_RE.test(code) || !PUBLISHABLE.has(verdict) || confirmations < 2) {
+    if (!CODE_RE.test(code) || !PUBLISHABLE.has(verdict) || confirmations < required) {
       rejected.push({ code, verdict, confirmations });
       continue;
     }
@@ -65,7 +103,7 @@ async function main() {
       const fresh = {
         code,
         status: verdict,
-        err_code: 0,
+        err_code: errCodeFor(verdict),
         confirmations,
         last_checked: String(row.updated_at || '').slice(0, 10) || null,
       };
@@ -81,7 +119,7 @@ async function main() {
      * through once enough clients agree. */
     if (existing.status !== verdict && confirmations >= Number(existing.confirmations || 1)) {
       existing.status = verdict;
-      existing.err_code = 0;
+      existing.err_code = errCodeFor(verdict, existing.err_code);
       existing.confirmations = confirmations;
       existing.last_checked = String(row.updated_at || '').slice(0, 10) || existing.last_checked;
       updated.push(`${code}: → ${verdict}`);
