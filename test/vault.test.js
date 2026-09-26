@@ -59,7 +59,18 @@ test('block-aware paste parsing keeps preset blocks separate from gift blocks', 
     assert.strictEqual((await vault.byKind('preset')).length, 2);
   });
 
-  test('status, kind, family, search and stats queries work', async () => {
+  test('gift-code normalization uppercases manual input before it reaches Garena', async () => {
+  const vault = new Vault({ adapter: new MemoryAdapter() });
+  await vault.init();
+  const result = await vault.importPaste('DFVNHackclaw1');
+  assert.strictEqual(result.imported, 1);
+  const rows = await vault.byKind('giftcode');
+  assert.strictEqual(rows[0].code, 'DFVNHACKCLAW1');
+  await vault.recordAttempt('DFVNHackclaw1', { status: 'success', err_code: 0 }, 'manual-run');
+  assert.strictEqual((await vault.search('DFVNHACKCLAW1'))[0].status, 'success');
+});
+
+test('status, kind, family, search and stats queries work', async () => {
     const vault = new Vault({ adapter: new MemoryAdapter() });
     await vault.init();
     await vault.importJSON([
