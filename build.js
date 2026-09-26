@@ -472,13 +472,13 @@ ${CORE}
 ${UI}
 
   const VIEWS = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
-  const LABELS = { dashboard: 'Tổng quan', library: 'Kho code', run: 'Chạy đổi', presets: 'Code Súng OP', share: 'Chia sẻ', history: 'Lịch sử' };
+  const LABELS = { dashboard: 'Tổng quan', library: 'Kho code', run: 'Chạy đổi', presets: 'Preset Gunsmith', share: 'Chia sẻ', history: 'Lịch sử' };
   const ICONS = { dashboard: '◈', library: '▤', run: '▶', presets: '⌖', share: '↗', history: '◷' };
   const HINTS = {
     dashboard: 'Tình trạng toàn bộ kho code',
     library: 'Tìm, lọc và xem lịch sử từng mã',
     run: 'Đổi hàng loạt — cần mở trên trang Garena',
-    presets: 'Mã lắp súng, nhập trong game',
+    presets: 'Preset Gunsmith cho mọi chế độ chơi',
     share: 'Xuất danh sách cho người khác',
     history: 'Mọi lần thử đã ghi lại',
   };

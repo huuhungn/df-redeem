@@ -30,7 +30,7 @@ function createPanel(options) {
   const VIEWS = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
   const VIEW_LABELS = {
     dashboard: 'Tổng quan', library: 'Kho code', run: 'Chạy đổi',
-    presets: 'Code Súng OP', share: 'Chia sẻ', history: 'Lịch sử',
+    presets: 'Preset Gunsmith', share: 'Chia sẻ', history: 'Lịch sử',
   };
   const VIEW_ICONS = {
     dashboard: '◈', library: '▤', run: '▶', presets: '⌖', share: '↗', history: '◷',
@@ -39,7 +39,7 @@ function createPanel(options) {
     dashboard: 'Tình trạng toàn bộ kho code',
     library: 'Tìm, lọc, sửa trạng thái từng mã',
     run: 'Đổi hàng loạt trên trang Garena',
-    presets: 'Mã lắp súng, nhập trong game',
+    presets: 'Preset Gunsmith cho mọi chế độ chơi',
     share: 'Xuất danh sách cho người khác',
     history: 'Mọi lần thử đã ghi lại',
   };
@@ -237,7 +237,7 @@ function createPanel(options) {
         <div class="kpi ok"><b>${by.success || 0}</b><span>Thành công</span></div>
         <div class="kpi share"><b>${share}</b><span>Chia sẻ được</span></div>
         <div class="kpi warn"><b>${untried}</b><span>Chưa thử</span></div>
-        <div class="kpi preset"><b>${cache.presets.length}</b><span>Code Súng OP</span></div>
+        <div class="kpi preset"><b>${cache.presets.length}</b><span>Preset Gunsmith</span></div>
       </section>
 
       ${untried > 0
@@ -277,7 +277,7 @@ function createPanel(options) {
             <p>Đổi trên web tại redeem.df.garena.sg. Tab <b>Chạy đổi</b> làm việc này.</p>
           </div>
           <div class="note">
-            <b>Code Súng OP</b>
+            <b>Preset Gunsmith</b>
             <p>Dán trong game: Gunsmith → Loadout → nút kính lúp. Không đổi qua web được.</p>
           </div>
         </div>
@@ -576,11 +576,23 @@ function createPanel(options) {
   }
 
   /* ── presets ───────────────────────────────────────────────────────────── */
+  /* `mode` is community text collected in Vietnamese and English, so normalize
+   * only proven aliases before grouping. Without this, one multiplayer mode is
+   * shown as three separate sections and one Operations mode as two. Keep unknown
+   * labels visible rather than guessing — they need a curator's decision. */
+  const MODE_ALIASES = {
+    'Havoc Warfare': 'Chiến Trường Toàn Diện',
+    Warfare: 'Chiến Trường Toàn Diện',
+    Operations: 'Chiến Dịch Sinh Tồn',
+    'Chiến Dịch (Thoát Hiểm)': 'Chiến Dịch Sinh Tồn',
+  };
+  const canonicalMode = (mode) => MODE_ALIASES[String(mode || '').trim()] || String(mode || '').trim() || 'Khác';
+
   function renderPresets() {
     const list = cache.presets.slice();
     const modes = {};
     for (const p of list) {
-      const m = p.mode || 'Khác';
+      const m = canonicalMode(p.mode);
       (modes[m] = modes[m] || []).push(p);
     }
     const keys = Object.keys(modes).sort();
@@ -642,7 +654,7 @@ function createPanel(options) {
       </section>
 
       <section class="card">
-        <div class="card-hd"><h3>Code Súng OP</h3><span class="muted">${presets.length} mã</span></div>
+        <div class="card-hd"><h3>Preset Gunsmith</h3><span class="muted">${presets.length} mã</span></div>
         <p class="muted tight">Định dạng <code class="mono">Súng-Chế độ-Mã</code> để người nhận biết dán vào đâu.</p>
         <div class="sharebox">
           <textarea class="share-preset" rows="7" readonly>${esc(presets.map((r) => `${r.weapon || r.gun || '?'}-${r.mode || '?'}-${r.code}`).join('\n'))}</textarea>
@@ -976,7 +988,7 @@ function createPanel(options) {
         '# Code Delta Force chia sẻ', '',
         '## Gift code — đổi tại redeem.df.garena.sg/vi/cdkgarena.html', '',
         '```', $('.share-gift').value, '```', '',
-        '## Code Súng OP — nhập trong game', '',
+        '## Preset Gunsmith — nhập trong game', '',
         'Gunsmith → Loadout → nút kính lúp → dán mã. Linh kiện chưa mở khoá sẽ không nạp được.', '',
         '```', $('.share-preset').value, '```', '',
       ].join('\n');

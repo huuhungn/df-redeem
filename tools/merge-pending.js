@@ -26,6 +26,17 @@ const TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
 const CODE_RE = /^[A-Z0-9]{6,32}$/;
 
+/* Test probes submitted to the live Worker while verifying the pipeline. The
+ * queue cannot distinguish them from real codes, so they are filtered here —
+ * before anything is written — and acked like any other handled row so they do
+ * not sit in the queue forever being re-offered.
+ *
+ * `DF` itself is deliberately not reserved: real Garena codes commonly begin
+ * with it. The exact historic probes live in probe-tokens.js. New live probes
+ * are prohibited; exercise the pipeline through local `wrangler dev` tests. */
+const { PROBE_CODES } = require('./probe-tokens.js');
+const isProbe = (code) => PROBE_CODES.includes(code);
+
 /* /pending reports a verdict, not the Garena error number behind it, so the
  * err_code written into the published row has to be derived from the verdict.
  * It used to be hardcoded to 0 — the code for *success* — which stamped every
@@ -86,12 +97,22 @@ async function main() {
   const added = [];
   const updated = [];
   const rejected = [];
+  const probes = [];
   const acked = [];
 
   for (const row of rows) {
     const code = String(row && row.code || '').trim().toUpperCase();
     const verdict = String(row && row.verdict || '');
     const confirmations = Number(row && row.confirmations || 0);
+
+    /* Probes are dropped *and* acked: rejecting without acking would leave them in
+     * the queue to be re-offered on every run forever. They are not real codes, so
+     * there is nothing to preserve. */
+    if (isProbe(code)) {
+      probes.push(code);
+      acked.push(code);
+      continue;
+    }
 
     if (!CODE_RE.test(code) || !PUBLISHABLE.has(verdict) || confirmations < required) {
       rejected.push({ code, verdict, confirmations });
@@ -139,6 +160,7 @@ async function main() {
 
   console.log(`  added   ${added.length}${added.length ? ': ' + added.slice(0, 10).join(', ') : ''}`);
   console.log(`  updated ${updated.length}${updated.length ? ': ' + updated.slice(0, 10).join(', ') : ''}`);
+  if (probes.length) console.log(`  dropped ${probes.length} test probe(s): ${probes.slice(0, 10).join(', ')}`);
   if (rejected.length) console.log(`  rejected ${rejected.length} (unpublishable or under-confirmed)`);
 
   if (!added.length && !updated.length) {

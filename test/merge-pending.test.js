@@ -114,8 +114,15 @@ async function waitForReady(timeoutMs) {
     const lonely = 'DFLONE' + Date.now().toString(36).toUpperCase().slice(-6);
     await submit(lonely, 0, '10.1.0.3');
 
+    /* A pipeline probe can reach /pending too. It must be dropped before writing
+     * data/codes.json, then acked so it cannot linger and be offered again. */
+    const probe = 'DFPIPEMUH9O9RQ';
+    await submit(probe, 0, '10.1.0.4');
+    await submit(probe, 0, '10.1.0.5');
+
     const dry = runMerge(['--dry-run']);
     check('dry run reports the new code', dry.includes(fresh), dry.trim().split('\n').slice(-3).join(' | '));
+    check('dry run identifies the test probe', dry.includes(`dropped 1 test probe(s): ${probe}`), dry.trim().split('\n').slice(-4).join(' | '));
     check('dry run writes nothing', readDoc().codes.length === before.codes.length);
 
     const out = runMerge();
@@ -124,6 +131,7 @@ async function waitForReady(timeoutMs) {
     const afterDoc = readDoc();
     const added = afterDoc.codes.find((r) => r.code === fresh);
     check('the confirmed code is now in data/codes.json', !!added, fresh);
+    check('the pipeline probe never lands in data/codes.json', !afterDoc.codes.some((r) => r.code === probe), probe);
     check('the added code carries the community verdict', added && added.status === 'success' && added.confirmations >= 2,
       JSON.stringify(added));
     check('an under-confirmed code stays out', !afterDoc.codes.some((r) => r.code === lonely), lonely);
@@ -135,6 +143,7 @@ async function waitForReady(timeoutMs) {
     /* Rows were acked, so a second run must be a clean no-op. */
     const second = runMerge();
     check('a second run is a no-op', second.includes('CHANGED=false'), second.trim().split('\n').slice(-2).join(' | '));
+    check('the acked probe is not offered again', !second.includes(probe), second.trim().split('\n').slice(-4).join(' | '));
 
     /* A verdict change from enough clients updates an existing row. */
     const target = afterDoc.codes.find((r) => r.status === 'success' && r.code !== fresh);

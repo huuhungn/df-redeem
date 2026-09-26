@@ -24,7 +24,7 @@ everyone else so nobody wastes requests on codes that are already dead.
 
 ```bash
 node build.js                 # writes extension/
-node test/run-all.js          # 135 tests across 8 suites
+node test/run-all.js          # runs all tests
 ```
 
 Then load `extension/` at `chrome://extensions` with Developer mode on.
@@ -36,9 +36,11 @@ Two data paths, deliberately different, because the trust model is different.
 **Gift codes sync automatically.** A gift code is objectively alive or dead, and
 the Garena API is the judge — so no human needs to approve anything. When your
 extension redeems a code, it reports the code and Garena's numeric response to a
-Cloudflare Worker. Once two independent clients agree on a verdict, a scheduled
-GitHub Action folds the row into `data/codes.json`. Every client reads that file
-and skips codes already known to be dead.
+Cloudflare Worker. Once the configured number of independent installs agree on a
+verdict, a scheduled GitHub Action folds the row into `data/codes.json`. This
+repository ships that threshold as **one** for its personal vault; a shared or
+public deployment can raise `CONFIRMATIONS_REQUIRED` (details below). Every
+client reads that file and skips codes already known to be dead.
 
 **Gunsmith presets need a human.** A preset is a subjective build that nobody
 can verify automatically, so presets only enter `data/presets.json` through
@@ -63,8 +65,9 @@ contacts the network at all.
 An extension ships its source to every user, so any credential inside it is
 public. A token that can write to this repo would be extracted and abused within
 hours. The Worker holds the only write credential, accepts a narrowly-shaped
-submission, rate-limits per IP, and requires corroboration before anything is
-promoted. See `docs/cloud-sync-design.md`.
+submission, and rate-limits per IP. How many independent installs must agree
+before a verdict is published is a deployment choice — see
+`CONFIRMATIONS_REQUIRED` below and `docs/cloud-sync-design.md`.
 
 ## Self-hosting the broker
 
@@ -76,8 +79,33 @@ wrangler secret put ADMIN_TOKEN           # used by the sync workflow
 wrangler deploy
 ```
 
-Then set `GH_VAULT_ENDPOINT` and `GH_VAULT_ADMIN_TOKEN` as repository secrets so
-`.github/workflows/sync-codes.yml` can drain the queue.
+Then set these two **repository secrets** so
+`.github/workflows/sync-codes.yml` can drain the queue:
+
+| Secret | Value |
+| --- | --- |
+| `GH_VAULT_ENDPOINT` | the deployed Worker URL, no trailing slash |
+| `GH_VAULT_ADMIN_TOKEN` | the same string given to `wrangler secret put ADMIN_TOKEN` |
+
+Both must be *secrets*, not variables, and the names must match exactly — the
+workflow skips with a notice when either is empty. (An earlier version gated on a
+variable named `VAULT_URL`, which was never set, so every scheduled run reported
+success while syncing nothing.)
+
+### How many reporters a verdict needs
+
+`worker/wrangler.jsonc` sets `CONFIRMATIONS_REQUIRED`, the number of distinct
+installs that must report the same verdict before it is published:
+
+- **`1`** (the shipped default) suits a personal vault, where the operator's own
+  install is the only reporter. A second one can never arrive, so any higher
+  value queues every row forever.
+- **`2` or more** suits a shared or public vault. Raise it there: one install can
+  only vouch for what it actually redeemed, and a single hostile client should not
+  be able to publish on its own.
+
+Changing it takes effect immediately for queued rows — eligibility is evaluated
+when `/pending` is read, not frozen when the row was submitted.
 
 ## Licence
 

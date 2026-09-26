@@ -356,7 +356,9 @@ test('presets view groups by mode and warns about in-game activation', async () 
   const cards = sd.querySelectorAll('.pcard');
   assert(cards.length === 20, 'expected 20 preset cards, got ' + cards.length);
   const heads = sd.querySelectorAll('h3').map((h) => h.textContent);
-  assert(heads.length >= 2, 'presets should group into >=2 modes, got ' + heads.length);
+  assert(heads.length === 3, 'alias modes should collapse into 3 canonical groups, got ' + heads.length);
+  assert(heads.includes('Chiến Trường Toàn Diện'), 'missing canonical Warfare group: ' + heads.join(', '));
+  assert(heads.includes('Chiến Dịch Sinh Tồn'), 'missing canonical Operations group: ' + heads.join(', '));
 });
 
 test('share view separates gift codes from presets', async () => {

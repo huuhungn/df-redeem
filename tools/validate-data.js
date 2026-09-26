@@ -14,9 +14,15 @@ const problems = [];
 const CODE_RE = /^[A-Z0-9]{6,32}$/;
 const PRESET_RE = /^[A-Z0-9]{10,40}$/i;
 const VALID_STATUS = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug', 'untried']);
+const { PROBE_CODES } = require('./probe-tokens.js');
+
 /* Verdicts that are true for one account only must never reach public data. */
 const FORBIDDEN_STATUS = new Set(['mine', 'account_already']);
 const FORBIDDEN_ERR = new Set([400067]);
+
+/* PROBE_TOKENS live beside the merge gate. Keep validation dependent on that
+ * canonical source so a newly reserved probe name cannot be filtered before
+ * merge but accidentally accepted by this backstop. */
 
 function readJson(rel) {
   const file = path.join(ROOT, rel);
@@ -48,6 +54,11 @@ if (codesDoc) {
       if (!CODE_RE.test(code)) problems.push(`${where}: bad code ${JSON.stringify(code)}`);
       if (seen.has(code)) problems.push(`${where}: duplicate code ${code}`);
       seen.add(code);
+
+      const probe = PROBE_CODES.includes(code) ? code : null;
+      if (probe) {
+        problems.push(`${where}: ${code} is a known test probe — remove it from the Worker queue instead of publishing it`);
+      }
 
       const status = String(row && row.status || '');
       if (FORBIDDEN_STATUS.has(status)) problems.push(`${where}: ${code} carries account-specific status "${status}"`);
