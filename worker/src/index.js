@@ -302,11 +302,20 @@ function adminOk(request, env) {
 
 async function handlePending(request, env) {
   if (!adminOk(request, env)) return json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  const required = confirmationsRequired(env);
   const listed = await env.VAULT.list({ prefix: 'pending:' });
   const rows = [];
   for (const entry of listed.keys) {
     const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
-    if (row && row.promoted) {
+    /* Judge against the *current* threshold instead of trusting the stored flag.
+     *
+     * `promoted` is only rewritten when a row is reported again, so rows queued
+     * under a higher threshold keep `promoted:false` forever once reporting stops
+     * — lowering the threshold silently published nothing, because the rows that
+     * should have become eligible were never touched again. Re-deriving here needs
+     * no KV writes, so it costs no quota and cannot strand a backlog. */
+    const eligible = row && Number(row.confirmations || 0) >= required;
+    if (eligible) {
       /* Reporter hashes stay inside the Worker — the repo gets a count, not a set
        * of per-client identifiers. */
       rows.push({

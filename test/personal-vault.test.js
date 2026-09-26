@@ -102,6 +102,11 @@ async function waitForPortFree() {
   /* Codes are fixed, not time-derived: phase 2 must address the exact rows phase 1
    * queued, which is the whole point of the migration assertion. */
   const QUEUED_WHILE_STRICT = 'DFMIGRATE0001';
+  /* Queued while strict and then never reported again — the real shape of a
+   * backlog after the operator stops redeeming. Nothing will ever rewrite its
+   * stored `promoted:false`, so it is the only row that proves /pending applies
+   * the current threshold rather than trusting the flag. */
+  const ABANDONED_WHILE_STRICT = 'DFABANDON0001';
   const SOLO = 'DFSOLO0000001';
   let server = null;
 
@@ -119,6 +124,12 @@ async function waitForPortFree() {
     check('a lone report stays unpromoted while two are required',
       queued.json && queued.json.confirmations === 1 && queued.json.promoted === false,
       JSON.stringify(queued.json));
+
+    const abandoned = await post('/submit',
+      { code: ABANDONED_WHILE_STRICT, err_code: 400068, install_id: asInstall(1) }, asClient('10.1.0.1'));
+    check('the abandoned row is also queued unpromoted while strict',
+      abandoned.json && abandoned.json.confirmations === 1 && abandoned.json.promoted === false,
+      JSON.stringify(abandoned.json));
 
     const strictPending = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
     check('the unpromoted row is not published while strict',
@@ -214,8 +225,14 @@ async function waitForPortFree() {
     const offered = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
     const offeredCodes = (offered.json && offered.json.rows || []).map((r) => r.code);
     check('every solo-promoted row is offered on /pending',
-      ['DFMIGRATE0001', SOLO, 'DFBATCHSOLO01'].every((c) => offeredCodes.includes(c)),
+      [QUEUED_WHILE_STRICT, SOLO, 'DFBATCHSOLO01'].every((c) => offeredCodes.includes(c)),
       JSON.stringify(offeredCodes));
+    /* The row nobody re-reported must be published too. /pending used to filter on
+     * the stored `promoted` flag, which is only rewritten on a fresh report, so a
+     * backlog that stopped receiving reports stayed invisible after the threshold
+     * dropped — the Worker said 291 pending and /pending returned 0 rows. */
+    check('a row never re-reported after the drop is published too',
+      offeredCodes.includes(ABANDONED_WHILE_STRICT), JSON.stringify(offeredCodes));
     check('/pending reports confirmations the merge tool can compare',
       (offered.json && offered.json.rows || []).every((r) => Number(r.confirmations) >= 1),
       JSON.stringify(offered.json && offered.json.rows));
