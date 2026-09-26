@@ -1,10 +1,10 @@
 {
   "version": 3,
-  "updated_at": "2026-09-26T15:58:26.423Z",
+  "updated_at": "2026-09-26T16:27:00.576Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
     "success": 210,
-    "expired": 58,
+    "expired": 70,
     "gift_bug": 10
   },
   "codes": [
@@ -126,6 +126,13 @@
       "err_code": 400073,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DF666MAJOR",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFADVN74",
@@ -842,11 +849,32 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFSIX666",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFSIXMAJOR6",
       "status": "expired",
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFSIXMAJORCHAMP",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFSIXTOPACE",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFSIXVIP888",
@@ -1549,6 +1577,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "GGWPSIXMAJOR66",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "HEDELTAFORCE3630",
       "status": "success",
       "err_code": 0,
@@ -1689,6 +1724,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "MVPSOLDFSIX",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "N4SQWgxYcHw7gUci3bJy",
       "status": "success",
       "err_code": 0,
@@ -1780,6 +1822,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "PROSOLMAJOR",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "PWC260418S11",
       "status": "success",
       "err_code": 0,
@@ -1857,6 +1906,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "SIXMAJORGOGO",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "SIXMAJORMVP",
       "status": "expired",
       "err_code": 400070,
@@ -1864,11 +1920,32 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "SIXMAJORTOP",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "SOLDFACE007",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "SOLDFWIN360",
       "status": "expired",
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "SOLMAJORGG9",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "SOLPROMAJOR",
@@ -1932,6 +2009,13 @@
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "VIP999DFSIX",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "WELCOMETODF",
