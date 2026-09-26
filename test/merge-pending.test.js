@@ -120,6 +120,12 @@ async function waitForReady(timeoutMs) {
     await submit(probe, 0, '10.1.0.4');
     await submit(probe, 0, '10.1.0.5');
 
+    /* A casing-sensitive code must publish its original spelling, while identity
+     * remains canonical so a differently cased second report confirms the same row. */
+    const mixedCase = 'DfCase' + Date.now().toString(36).slice(-6);
+    await submit(mixedCase, 0, '10.1.0.6');
+    await submit(mixedCase.toUpperCase(), 0, '10.1.0.7');
+
     const dry = runMerge(['--dry-run']);
     check('dry run reports the new code', dry.includes(fresh), dry.trim().split('\n').slice(-3).join(' | '));
     check('dry run identifies the test probe', dry.includes(`dropped 1 test probe(s): ${probe}`), dry.trim().split('\n').slice(-4).join(' | '));
@@ -130,14 +136,19 @@ async function waitForReady(timeoutMs) {
 
     const afterDoc = readDoc();
     const added = afterDoc.codes.find((r) => r.code === fresh);
+    const addedMixedCase = afterDoc.codes.find((r) => r.code === mixedCase);
     check('the confirmed code is now in data/codes.json', !!added, fresh);
+    check('a mixed-case code reaches public data with its original spelling', !!addedMixedCase, mixedCase);
+    check('the casing variant does not create a second public row',
+      afterDoc.codes.filter((r) => String(r.code).toUpperCase() === mixedCase.toUpperCase()).length === 1,
+      JSON.stringify(afterDoc.codes.filter((r) => String(r.code).toUpperCase() === mixedCase.toUpperCase())));
     check('the pipeline probe never lands in data/codes.json', !afterDoc.codes.some((r) => r.code === probe), probe);
     check('the added code carries the community verdict', added && added.status === 'success' && added.confirmations >= 2,
       JSON.stringify(added));
     check('an under-confirmed code stays out', !afterDoc.codes.some((r) => r.code === lonely), lonely);
     check('counts were recomputed', afterDoc.counts && afterDoc.counts.success >= (before.counts.success || 0) + 1,
       JSON.stringify(afterDoc.counts));
-    check('no existing code was dropped', afterDoc.codes.length === before.codes.length + 1,
+    check('no existing code was dropped', afterDoc.codes.length === before.codes.length + 2,
       `${before.codes.length} → ${afterDoc.codes.length}`);
 
     /* Rows were acked, so a second run must be a clean no-op. */

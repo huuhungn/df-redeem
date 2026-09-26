@@ -23,8 +23,9 @@ const TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 /* Same publishable set as the Worker. Duplicated deliberately: if the Worker is
  * ever compromised or misconfigured, the repo side still refuses to write an
  * account-specific verdict into public data. */
-const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
-const CODE_RE = /^[A-Z0-9]{6,32}$/;
+const PUBLISHABLE = new Set(['success', 'expired', 'gift_bug']);
+const CODE_RE = /^[A-Za-z0-9]{6,32}$/;
+const canonicalCode = (value) => String(value || '').trim().toUpperCase();
 
 /* Test probes submitted to the live Worker while verifying the pipeline. The
  * queue cannot distinguish them from real codes, so they are filtered here —
@@ -41,12 +42,12 @@ const isProbe = (code) => PROBE_CODES.includes(code);
  * err_code written into the published row has to be derived from the verdict.
  * It used to be hardcoded to 0 — the code for *success* — which stamped every
  * expired or invalid row with a success error number and contradicted its own
- * status field. Mirrors VERDICT_BY_ERR in worker/src/verdicts.js; 'exhausted'
- * has no current err_code (400069 is per-account and never published) so seed
- * rows carrying it keep whatever they already had. */
+ * status field. Mirrors VERDICT_BY_ERR in worker/src/verdicts.js; only verdicts
+ * currently publishable by the Worker are listed here. `exhausted` has no current
+ * err_code (400069 is per-account and never published) so seed rows carrying it
+ * keep whatever they already had. */
 const ERR_BY_VERDICT = new Map([
   ['success', 0],
-  ['invalid', 400054],
   ['expired', 400068],
   ['gift_bug', 400073],
 ]);
@@ -92,7 +93,7 @@ async function main() {
 
   const doc = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
   const codes = Array.isArray(doc.codes) ? doc.codes : [];
-  const byCode = new Map(codes.map((row) => [row.code, row]));
+  const byCode = new Map(codes.map((row) => [canonicalCode(row.code), row]));
 
   const added = [];
   const updated = [];
@@ -101,7 +102,8 @@ async function main() {
   const acked = [];
 
   for (const row of rows) {
-    const code = String(row && row.code || '').trim().toUpperCase();
+    const code = String(row && row.code || '').trim();
+    const codeKey = canonicalCode(code);
     const verdict = String(row && row.verdict || '');
     const confirmations = Number(row && row.confirmations || 0);
 
@@ -119,7 +121,7 @@ async function main() {
       continue;
     }
 
-    const existing = byCode.get(code);
+    const existing = byCode.get(codeKey);
     if (!existing) {
       const fresh = {
         code,
@@ -128,7 +130,7 @@ async function main() {
         confirmations,
         last_checked: String(row.updated_at || '').slice(0, 10) || null,
       };
-      byCode.set(code, fresh);
+      byCode.set(codeKey, fresh);
       added.push(code);
       acked.push(code);
       continue;

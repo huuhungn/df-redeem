@@ -96,8 +96,11 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       },
     });
     const result = await service.reportOutcomes([
-      { code: 'good1code', status: 'success', err_code: 0 },
+      { code: 'GoodCase1', status: 'success', err_code: 0 },
+      /* 400054 can result from a casing-variant spelling. Keep it local until
+       * the community pipeline can prove the submitted spelling is invalid. */
       { code: 'dead1code', status: 'invalid', err_code: 400054 },
+      { code: 'ExpiredCase1', status: 'expired', err_code: 400068 },
       { code: 'mine1code', status: 'mine', err_code: 400067 },
       { code: 'used1code', status: 'mine', err_code: 400069 },
       { code: 'untried01', status: 'untried', err_code: 0 },
@@ -114,7 +117,8 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       requests[0] && requests[0].url === 'https://broker.test/submit-batch', requests[0] && requests[0].url);
 
     const posted = (requests[0] && requests[0].body.rows) || [];
-    check('reportOutcomes sends shareable verdicts', result.sent === 2, JSON.stringify(result));
+    check('reportOutcomes sends casing-safe shareable verdicts', result.sent === 2, JSON.stringify(result));
+    check('a possibly casing-specific invalid response is never reported', !posted.some((p) => p.err_code === 400054), JSON.stringify(posted));
     check('an account-specific verdict is never reported', !posted.some((p) => p.code === 'MINE1CODE'), JSON.stringify(posted));
     check('a locally used code is never reported', !posted.some((p) => p.code === 'USED1CODE'), JSON.stringify(posted));
     check('an untried code is never reported', !posted.some((p) => p.code === 'UNTRIED01'), JSON.stringify(posted));
@@ -124,7 +128,8 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('unknown or transient-looking local errors never leave the machine', !posted.some((p) => p.err_code === 999999), JSON.stringify(posted));
     check('reports carry only code and err_code',
       posted.every((p) => Object.keys(p).sort().join(',') === 'code,err_code'), JSON.stringify(posted));
-    check('reported codes are normalised to uppercase', posted.every((p) => p.code === p.code.toUpperCase()), JSON.stringify(posted));
+    check('reported codes preserve their original casing', posted.some((p) => p.code === 'GoodCase1'), JSON.stringify(posted));
+    check('reported codes are not canonicalised in the payload', posted.some((p) => p.code !== p.code.toUpperCase()), JSON.stringify(posted));
     /* The body gained install_id, so the old "rows only" assertion no longer
      * holds — but the privacy property it protected still must. Pin the exact
      * key set so a future field cannot slip in unnoticed, and assert the id is a
@@ -254,6 +259,26 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       merged.records.length === 1 && merged.records[0].code === 'DFVNHackclaw1' && merged.records[0].status === 'untried', JSON.stringify(merged));
   }
 
+  {
+    const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });
+    const merged = service.mergeCommunityCodes(
+      [],
+      [{ code: 'DfCaseCode1', status: 'invalid', err_code: 400054 }],
+    );
+    check('a legacy public invalid row is ignored because its spelling cannot be trusted',
+      merged.records.length === 0, JSON.stringify(merged));
+  }
+
+  {
+    const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });
+    const merged = service.mergeCommunityCodes(
+      [{ code: 'LocalMixed1', kind: 'giftcode', status: 'untried', err_code: 0 }],
+      [{ code: 'localmixed1', status: 'invalid', err_code: 400054 }],
+    );
+    check('a legacy invalid row cannot overwrite a local retryable code',
+      merged.records.length === 1 && merged.records[0].status === 'untried' && merged.changedRecords.length === 0, JSON.stringify(merged));
+  }
+
   /* ---- mergeCommunityCodes -------------------------------------------- */
   {
     const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });
@@ -268,7 +293,7 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       { code: 'LOCALUNTRIED', status: 'expired', err_code: 400068 },   // may mark a never-tried code dead
       { code: 'LOCALEXPIRED', status: 'success' },     // must NOT resurrect a local dead verdict
       { code: 'BRANDNEWCODE', status: 'success' },     // new, usable here
-      { code: 'BRANDNEWDEAD', status: 'invalid' },     // new, already dead
+      { code: 'BRANDNEWDEAD', status: 'expired' },     // new, globally dead
       { code: 'JUNKSTATUS01', status: 'mine' },        // unpublishable, must be ignored
     ];
 
@@ -281,7 +306,7 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       merged.changedRecords.length === 3 && merged.changedRecords.some((row) => row.code === 'LOCALUNTRIED'), JSON.stringify(merged.changedRecords));
     check('a local dead verdict is not resurrected', find('LOCALEXPIRED').status === 'expired', JSON.stringify(find('LOCALEXPIRED')));
     check("someone else's success arrives as untried here", find('BRANDNEWCODE').status === 'untried', JSON.stringify(find('BRANDNEWCODE')));
-    check('a new dead code arrives already dead', find('BRANDNEWDEAD').status === 'invalid', JSON.stringify(find('BRANDNEWDEAD')));
+    check('a new globally dead code arrives already dead', find('BRANDNEWDEAD').status === 'expired', JSON.stringify(find('BRANDNEWDEAD')));
     check('an unpublishable remote status is ignored', !find('JUNKSTATUS01'), JSON.stringify(find('JUNKSTATUS01')));
     check('merge counts are reported', merged.added === 2 && merged.updated === 1, JSON.stringify({ added: merged.added, updated: merged.updated }));
     check('community rows are tagged', find('BRANDNEWCODE').tags.includes('community'));

@@ -82,8 +82,13 @@ after each completed run it pulls first, then contributes only global outcomes.
 
 - `0` success is shared as a code that is usable, but remains **untried** for
   every other account so each user may redeem it themselves.
-- `400068` / `400070` expired, `400054` invalid, and `400073` gift errors are
-  shared after the confirmation threshold so later users do not waste requests.
+- `400068` / `400070` expired and `400073` gift errors are shared after the
+  confirmation threshold so later users do not waste requests.
+- `400054` invalid is **local-only**: a code can reject a casing variant while its
+  original spelling works. The public pipeline preserves submitted casing and
+  uses uppercase only as an internal identity/deduplication key. The v3.1.2
+  publish step removes older public `invalid` rows; they must be re-verified by
+  an exact-case successful/expired/gift-error response before sharing again.
 - `400067` and `400069` mean that **that specific account** already received or
   used the reward. They are stored locally as `mine`, never published, and never
   overwrite another user's local status.
@@ -94,7 +99,18 @@ after each completed run it pulls first, then contributes only global outcomes.
 The published list is committed by the scheduled GitHub workflow, so it becomes
 available to every new extension install through the default public URL.
 
-### Legacy confirmation policy
+## Personal backup versus public community sync
+
+The Options page deliberately shows two separate surfaces:
+
+- **Kho cộng đồng** is automatic and public. It needs neither a Google account nor
+  a self-hosted endpoint. It pulls curated codes and contributes only the narrow,
+  casing-safe global evidence described above.
+- **Sao lưu cá nhân** is optional. Chrome Sync or a configured REST endpoint copies
+  the owner’s private local vault between that owner’s devices. It is never needed
+  for community participation, and clearing its remote copy never clears the
+  community vault or the local vault.
+
 
 `data/codes.json` may contain older rows with `confirmations: 1` from the
 pre-public personal-vault policy. They are retained as historical, curated data;

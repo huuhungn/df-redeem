@@ -257,6 +257,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     async init() {
       await this.adapter.open();
       await this.migrateLegacyUsedStatus();
+      await this.migrateCasingAmbiguousInvalids();
       await this.seedOnFirstRun();
       return this;
     }
@@ -275,6 +276,29 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
         }
       }
       await this.adapter.put(STORES.meta, { key: 'migrate_used_400069_v1', migrated, migrated_at: this.clock() });
+      return { migrated, skipped: false };
+    }
+
+    async migrateCasingAmbiguousInvalids() {
+      const marker = await this.adapter.get(STORES.meta, 'migrate_invalid_400054_v1');
+      if (marker) return { migrated: 0, skipped: true };
+      let migrated = 0;
+      for (const row of await this.adapter.getAll(STORES.codes)) {
+        /* 400054 can be caused by a casing variant, so it is no longer a trusted
+         * global outcome. Keep the submitted spelling/history, but make it
+         * retryable locally rather than silently skipping a usable code. */
+        if (row && row.status === 'invalid' && Number(row.err_code) === 400054) {
+          await this.adapter.put(STORES.codes, {
+            ...row,
+            status: 'untried',
+            err_code: 0,
+            result_msg: '',
+            shareable: false,
+          });
+          migrated += 1;
+        }
+      }
+      await this.adapter.put(STORES.meta, { key: 'migrate_invalid_400054_v1', migrated, migrated_at: this.clock() });
       return { migrated, skipped: false };
     }
 

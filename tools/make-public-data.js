@@ -23,16 +23,23 @@ const day = (value) => {
 /* "mine" is a local-only verdict: it means *this* operator already redeemed the
  * code (Garena answers 400067 to the same account). For anyone else that code is
  * still perfectly usable, so it must publish as a working code — publishing it as
- * "mine" would make every other client skip a good code. */
+ * "mine" would make every other client skip a good code. `invalid` is also local
+ * only: 400054 can be caused by an altered casing of an otherwise working code. */
 const PUBLIC_STATUS = { mine: 'success' };
+const PUBLISHABLE = new Set(['success', 'expired', 'gift_bug']);
 
 const codes = (seed.codes || [])
   .filter((row) => row && row.code && row.kind === 'giftcode')
   .map((row) => {
     const local = String(row.status || 'untried');
     const status = PUBLIC_STATUS[local] || local;
-    return {
-      code: String(row.code).trim().toUpperCase(),
+    return { row, local, status };
+  })
+  .filter(({ status }) => PUBLISHABLE.has(status))
+  .map(({ row, local, status }) => ({
+      /* Garena redemption can be casing-sensitive. Preserve the spelling that
+       * produced the local result; consumers dedupe identity separately. */
+      code: String(row.code).trim(),
       status,
       /* 400067 ("already redeemed by you") is per-account, so it must not travel
        * with the record either. A shared record only carries an error code when
@@ -42,8 +49,7 @@ const codes = (seed.codes || [])
        * one observer, so everything it contributes starts at 1. */
       confirmations: 1,
       last_checked: day(row.last_tried || row.first_seen),
-    };
-  })
+    }))
   .sort((a, b) => a.code.localeCompare(b.code));
 
 const presets = (seed.presets || [])

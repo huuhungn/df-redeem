@@ -3,7 +3,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
   'use strict';
 
   const DB_NAME = 'df-redeem-vault';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   const STORES = Object.freeze({
     codes: 'codes',
     runs: 'runs',

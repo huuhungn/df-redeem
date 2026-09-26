@@ -11,9 +11,9 @@ const path = require('path');
 
 const ROOT = __dirname.replace(/[\\/]tools$/, '');
 const problems = [];
-const CODE_RE = /^[A-Z0-9]{6,32}$/;
+const CODE_RE = /^[A-Za-z0-9]{6,32}$/;
 const PRESET_RE = /^[A-Z0-9]{10,40}$/i;
-const VALID_STATUS = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug', 'untried']);
+const VALID_STATUS = new Set(['success', 'expired', 'exhausted', 'gift_bug', 'untried']);
 const { PROBE_CODES } = require('./probe-tokens.js');
 
 /* Verdicts that are true for one account only must never reach public data. */
@@ -51,9 +51,10 @@ if (codesDoc) {
     for (const [index, row] of codes.entries()) {
       const where = `data/codes.json[${index}]`;
       const code = String(row && row.code || '');
+      const identity = code.toUpperCase();
       if (!CODE_RE.test(code)) problems.push(`${where}: bad code ${JSON.stringify(code)}`);
-      if (seen.has(code)) problems.push(`${where}: duplicate code ${code}`);
-      seen.add(code);
+      if (seen.has(identity)) problems.push(`${where}: duplicate code identity ${identity}`);
+      seen.add(identity);
 
       const probe = PROBE_CODES.includes(code) ? code : null;
       if (probe) {

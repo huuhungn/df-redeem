@@ -15,9 +15,10 @@
  *   POST /ack               drop rows the Action committed (needs ADMIN_TOKEN)
  */
 
-/* Garena gift codes are uppercase alphanumerics. Anything else is either a typo
- * or an injection attempt and is rejected before it can reach KV. */
-const CODE_RE = /^[A-Z0-9]{6,32}$/;
+/* Preserve a submitted code's spelling in public data. Identity/deduplication is
+ * case-insensitive, but redeeming is not: Garena has accepted mixed-case codes
+ * that its uppercase form rejects. */
+const CODE_RE = /^[A-Za-z0-9]{6,32}$/;
 
 /* Verdicts a client may report, mapped from Garena's own error numbers. A client
  * cannot invent a status string — it reports err_code and the Worker decides. */
@@ -27,7 +28,7 @@ import { VERDICT_BY_ERR, PER_ACCOUNT, TRANSIENT } from './verdicts.js';
  * deliberately not publishable: no current Garena error establishes it for all
  * accounts. Historical rows remain readable in the repository but are never
  * newly accepted or promoted by this Worker. */
-const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
+const PUBLISHABLE = new Set(['success', 'expired', 'gift_bug']);
 
 /* Public deployment fails safe: a malformed/missing variable still needs two
  * reporter IDs before promotion. A UUID is client asserted, so this reduces
@@ -121,8 +122,9 @@ async function rateLimited(env, limitKey) {
  * paths cannot drift; rate limiting is the caller's job because a batch must
  * cost one slot, not one per row. */
 async function recordVerdict(env, rawCode, rawErr, reporter) {
-  const code = String(rawCode || '').trim().toUpperCase();
-  if (!CODE_RE.test(code)) return { ok: false, error: 'code must be 6-32 chars A-Z0-9', status: 400 };
+  const code = String(rawCode || '').trim();
+  if (!CODE_RE.test(code)) return { ok: false, error: 'code must be 6-32 alphanumeric chars', status: 400 };
+  const codeKey = code.toUpperCase();
 
   const errCode = Number(rawErr);
   /* Three outcomes, kept apart on purpose:
@@ -140,8 +142,10 @@ async function recordVerdict(env, rawCode, rawErr, reporter) {
   if (isTransient) return { ok: true, code, queued: false, reason: 'verdict is transient' };
 
   const verdict = VERDICT_BY_ERR.get(errCode);
-  const key = `pending:${code}`;
-  const existing = JSON.parse((await env.VAULT.get(key)) || 'null') || {
+  const key = `pending:${codeKey}`;
+  const existing = JSON.parse((await env.VAULT.get(key)) || 'null');
+  const isNew = !existing;
+  const queue = existing || {
     code,
     verdict,
     reporters: [],
@@ -150,16 +154,16 @@ async function recordVerdict(env, rawCode, rawErr, reporter) {
 
   /* A verdict flip (e.g. a code that worked yesterday is exhausted today) restarts
    * the count rather than mixing disagreeing reports into one total. */
-  const flipped = existing.verdict !== verdict;
+  const flipped = !isNew && queue.verdict !== verdict;
   if (flipped) {
-    existing.verdict = verdict;
-    existing.reporters = [];
+    queue.verdict = verdict;
+    queue.reporters = [];
   }
-  const isNewReporter = !existing.reporters.includes(reporter);
-  if (isNewReporter) existing.reporters.push(reporter);
+  const isNewReporter = !queue.reporters.includes(reporter);
+  if (isNewReporter) queue.reporters.push(reporter);
 
   const needed = confirmationsRequired(env);
-  const confirmations = existing.reporters.length;
+  const confirmations = queue.reporters.length;
   const shouldPromote = confirmations >= needed;
 
   /* Re-reporting a verdict already on file changes nothing, and clients push their
@@ -171,27 +175,28 @@ async function recordVerdict(env, rawCode, rawErr, reporter) {
    * confirmation threshold leaves already-queued rows at their old verdict and
    * reporter set, so without this they would stay unpromoted forever and the
    * threshold change would silently do nothing to the existing queue. */
-  const changed = flipped
+  const changed = isNew
+    || flipped
     || isNewReporter
-    || !existing.updated_at
-    || existing.promoted !== shouldPromote
-    || existing.confirmations !== confirmations;
+    || !queue.updated_at
+    || queue.promoted !== shouldPromote
+    || queue.confirmations !== confirmations;
 
   if (changed) {
-    existing.updated_at = new Date().toISOString();
-    existing.confirmations = confirmations;
-    existing.promoted = shouldPromote;
-    await env.VAULT.put(key, JSON.stringify(existing), { expirationTtl: PENDING_TTL_SECONDS });
+    queue.updated_at = new Date().toISOString();
+    queue.confirmations = confirmations;
+    queue.promoted = shouldPromote;
+    await env.VAULT.put(key, JSON.stringify(queue), { expirationTtl: PENDING_TTL_SECONDS });
   }
 
   return {
     ok: true,
     queued: true,
-    code,
+    code: queue.code,
     verdict,
-    confirmations: existing.confirmations,
+    confirmations: queue.confirmations,
     needed,
-    promoted: existing.promoted,
+    promoted: queue.promoted,
     /* Lets a client tell "already on file" apart from "your report counted". */
     unchanged: !changed,
   };
@@ -311,7 +316,12 @@ async function handlePending(request, env) {
      * — lowering the threshold silently published nothing, because the rows that
      * should have become eligible were never touched again. Re-deriving here needs
      * no KV writes, so it costs no quota and cannot strand a backlog. */
-    const eligible = row && Number(row.confirmations || 0) >= required;
+    /* Legacy queues may contain a formerly accepted `invalid` report. Do not
+     * re-expose it: its casing may be wrong, and only the strict current set may
+     * cross this public boundary. */
+    const eligible = row
+      && PUBLISHABLE.has(row.verdict)
+      && Number(row.confirmations || 0) >= required;
     if (eligible) {
       /* Reporter hashes stay inside the Worker — the repo gets a count, not a set
        * of per-client identifiers. */
@@ -339,9 +349,9 @@ async function handleAck(request, env) {
   const codes = Array.isArray(payload && payload.codes) ? payload.codes : [];
   let removed = 0;
   for (const raw of codes) {
-    const code = String(raw || '').trim().toUpperCase();
-    if (!CODE_RE.test(code)) continue;
-    await env.VAULT.delete(`pending:${code}`);
+    const submitted = String(raw || '').trim();
+    if (!CODE_RE.test(submitted)) continue;
+    await env.VAULT.delete(`pending:${submitted.toUpperCase()}`);
     removed += 1;
   }
   return json({ ok: true, removed });

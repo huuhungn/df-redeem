@@ -129,11 +129,21 @@ const TEST_CONFIRMATIONS = 2;
       perAccount.status === 200 && perAccount.json.ok === true && perAccount.json.queued === false,
       JSON.stringify(perAccount.json));
 
-    /* ---- the verdict map must match garena.js --------------------------- */
-    /* These pairings are counter-intuitive (400054 is INVALID, 400068 is EXPIRED)
-     * and were wrong in an earlier revision, which would have published a wrong
-     * verdict to every user. Pin them. */
-    for (const [errCode, expected] of [[0, 'success'], [400054, 'invalid'], [400068, 'expired'], [400070, 'expired'], [400073, 'gift_bug']]) {
+    const casingInvalid = await post('/submit', { code: 'CaseCode1', err_code: 400054 }, asClient('10.0.0.2'));
+    check('a potentially casing-specific 400054 is accepted but never queued for public sync',
+      casingInvalid.status === 200 && casingInvalid.json && casingInvalid.json.ok === true && casingInvalid.json.queued === false,
+      JSON.stringify(casingInvalid.json));
+    const mixedCaseSuccess = await post('/submit', { code: 'CaseCode1', err_code: 0 }, asClient('10.0.0.3'));
+    check('a mixed-case code is accepted while its public spelling is preserved',
+      mixedCaseSuccess.status === 200 && mixedCaseSuccess.json && mixedCaseSuccess.json.code === 'CaseCode1',
+      JSON.stringify(mixedCaseSuccess.json));
+    const sameIdentity = await post('/submit', { code: 'CASECODE1', err_code: 0 }, asClient('10.0.0.4'));
+    check('casing variants deduplicate under one canonical queue identity',
+      sameIdentity.status === 200 && sameIdentity.json && sameIdentity.json.confirmations === 2 && sameIdentity.json.code === 'CaseCode1',
+      JSON.stringify(sameIdentity.json));
+
+    /* Only verdicts that do not depend on the submitted spelling are public. */
+    for (const [errCode, expected] of [[0, 'success'], [400068, 'expired'], [400070, 'expired'], [400073, 'gift_bug']]) {
       const probe = await post('/submit', { code: 'DFMAP' + errCode, err_code: errCode }, asClient('10.0.9.' + (errCode % 200)));
       check(`err_code ${errCode} maps to ${expected}`,
         probe.json && probe.json.verdict === expected,
@@ -232,12 +242,12 @@ const TEST_CONFIRMATIONS = 2;
     const burstIp = asClient('10.0.9.99');
     let sawLimit = false;
     for (let i = 0; i < 130; i += 1) {
-      const res = await post('/submit', { code: 'DFBURST' + String(i).padStart(5, '0'), err_code: 400054 }, burstIp);
+      const res = await post('/submit', { code: 'DFBURST' + String(i).padStart(5, '0'), err_code: 400068 }, burstIp);
       if (res.status === 429) { sawLimit = true; break; }
     }
     check('a flood from one client is rate limited', sawLimit);
 
-    const otherStillOk = await post('/submit', { code: 'DFOTHER00001', err_code: 400054 }, asClient('10.0.9.100'));
+    const otherStillOk = await post('/submit', { code: 'DFOTHER00001', err_code: 400068 }, asClient('10.0.9.100'));
     check('rate limit is per client, not global', otherStillOk.status === 200, 'status ' + otherStillOk.status);
 
     /* ---- /submit-batch --------------------------------------------------- */
@@ -247,6 +257,7 @@ const TEST_CONFIRMATIONS = 2;
     const batchRows = [
       { code: 'DFBATCHGOOD1', err_code: 0 },
       { code: 'DFBATCHDEAD1', err_code: 400068 },
+      { code: 'DFBATCHINVALID1', err_code: 400054 },
       { code: 'DFBATCHMINE1', err_code: 400067 },
       { code: 'DFBATCHUSED1', err_code: 400069 },
       { code: 'DFBATCHREGN1', err_code: 400055 },
@@ -258,8 +269,8 @@ const TEST_CONFIRMATIONS = 2;
     check('a batch reports per-row outcomes',
       batch.json && batch.json.results && batch.json.results.length === batchRows.length,
       JSON.stringify(batch.json && batch.json.results && batch.json.results.length));
-    check('only publishable rows are queued', batch.json && batch.json.queued === 2, JSON.stringify(batch.json));
-    check('an unknown err_code and a malformed code are rejected',
+    check('only casing-safe global rows are queued', batch.json && batch.json.queued === 2, JSON.stringify(batch.json));
+    check('unknown and malformed rows are rejected while casing-specific invalid stays local',
       batch.json && batch.json.rejected === 2, JSON.stringify(batch.json));
     check('per-account rows are accepted without queueing',
       batch.json && batch.json.results.some((r) => r.code === 'DFBATCHMINE1' && r.ok === true && r.queued === false)
@@ -285,7 +296,7 @@ const TEST_CONFIRMATIONS = 2;
     /* Same IP, a second big batch: it must still be allowed, which proves the
      * batch cost one slot rather than one per row. */
     const secondBatch = await post('/submit-batch', {
-      rows: Array.from({ length: 60 }, (_, i) => ({ code: 'DFBATCHB' + String(i).padStart(4, '0'), err_code: 400054 })),
+      rows: Array.from({ length: 60 }, (_, i) => ({ code: 'DFBATCHB' + String(i).padStart(4, '0'), err_code: 400068 })),
     }, batchIp);
     check('a batch costs one rate-limit slot, not one per row',
       secondBatch.status === 200, 'status ' + secondBatch.status);
@@ -308,13 +319,13 @@ const TEST_CONFIRMATIONS = 2;
      * every submission failed with a 500. */
     const dedupeIp = asClient('10.0.0.77');
     const firstPush = await post('/submit-batch', {
-      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400068 }],
     }, dedupeIp);
     const firstRow = ((firstPush.json && firstPush.json.results) || [])[0] || {};
     check('a first report is written', firstRow.unchanged === false, JSON.stringify(firstRow));
 
     const repeatPush = await post('/submit-batch', {
-      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400068 }],
     }, dedupeIp);
     const repeatRow = ((repeatPush.json && repeatPush.json.results) || [])[0] || {};
     check('the same reporter re-sending the same verdict is not rewritten',
@@ -323,7 +334,7 @@ const TEST_CONFIRMATIONS = 2;
       repeatRow.confirmations === 1, JSON.stringify(repeatRow));
 
     const otherPush = await post('/submit-batch', {
-      rows: [{ code: 'DFDEDUPEROW01', err_code: 400054 }],
+      rows: [{ code: 'DFDEDUPEROW01', err_code: 400068 }],
     }, asClient('10.0.0.78'));
     const otherRow = ((otherPush.json && otherPush.json.results) || [])[0] || {};
     check('a second independent reporter still counts and is written',
@@ -332,7 +343,7 @@ const TEST_CONFIRMATIONS = 2;
     /* A whole vault took ~175s when every row was written strictly sequentially,
      * which no client waits for; the handler now runs independent codes in waves. */
     const bulkRows = [];
-    for (let i = 0; i < 200; i += 1) bulkRows.push({ code: 'DFBULK' + String(i).padStart(6, '0'), err_code: 400054 });
+    for (let i = 0; i < 200; i += 1) bulkRows.push({ code: 'DFBULK' + String(i).padStart(6, '0'), err_code: 400068 });
     const bulkStart = Date.now();
     const bulk = await post('/submit-batch', { rows: bulkRows }, asClient('10.0.23.9'));
     const bulkMs = Date.now() - bulkStart;

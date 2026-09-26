@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.1.1';
+const VERSION = '3.1.2';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -752,16 +752,22 @@ const optionsHtml = `<!doctype html>
     <div class="mark">DF</div>
     <div>
       <h1>Delta Force Auto Redeem</h1>
-      <p class="sub">Kho cục bộ lưu trạng thái mã/preset trên máy. Đồng bộ chỉ sao lưu trạng thái đã đổi để khớp giữa các máy cùng tài khoản Chrome; không bật vẫn dùng bình thường.</p>
+      <p class="sub">Kho cục bộ giữ trạng thái mã/preset trên máy. <b>Kho cộng đồng</b> là public, không cần Google/REST và chỉ chia sẻ verdict có hiệu lực với mọi account. <b>Sao lưu cá nhân</b> ở bên dưới chỉ để khớp kho riêng giữa các máy của bạn.</p>
     </div>
     <span class="ver">v${VERSION}</span>
   </header>
 
   <fieldset>
-    <legend>Đồng bộ</legend>
-    <label class="check"><input type="checkbox" id="enabled"> Bật đồng bộ kho code</label>
-    <p class="note">Tắt: trạng thái chỉ ở máy này. Bật: sao lưu/khớp trạng thái đã đổi giữa các máy dùng cùng tài khoản Chrome. Không đồng bộ mã cộng đồng mới, preset mới hay dữ liệu đăng nhập.</p>
-    <label>Nơi lưu
+    <legend>Kho cộng đồng</legend>
+    <p class="note"><b>Tự động hoạt động, không cần đăng nhập Google hay cấu hình server.</b> Khi mở extension, kho public được tải về. Sau lượt đổi mã, chỉ kết quả có hiệu lực với mọi account mới được gửi làm bằng chứng. <b>Đã dùng/đã nhận</b>, sai account/khu vực, captcha và lỗi tạm thời luôn ở lại máy này.</p>
+    <p class="note">Một mã thành công ở người khác vẫn là <b>chưa thử</b> cho account của bạn. Mã hết hạn/lỗi quà cần hai lượt cài đặt độc lập xác nhận trước khi công bố.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Sao lưu cá nhân tùy chọn</legend>
+    <label class="check"><input type="checkbox" id="enabled"> Bật sao lưu kho riêng của tôi</label>
+    <p class="note">Tắt: lịch sử và trạng thái account chỉ ở máy này. Bật: sao lưu/khớp kho riêng giữa các máy của bạn. Tính năng này không cấp dữ liệu của bạn cho kho cộng đồng.</p>
+    <label>Nơi sao lưu cá nhân
       <select id="backend">
         <option value="chrome-sync">Chrome Sync (cần đăng nhập Chrome, tối đa ~100 KB)</option>
         <option value="rest">REST endpoint (tự host, không giới hạn)</option>
@@ -776,8 +782,8 @@ const optionsHtml = `<!doctype html>
       </label>
       <p class="note">Token gửi dưới dạng header Authorization. Mọi thông báo lỗi đều đã khử token trước khi hiện ra.</p>
     </div>
-    <label class="check"><input type="checkbox" id="auto"> Tự đồng bộ sau khi chạy đổi mã</label>
-    <p class="note">Nên bật — sau khi lượt đổi hoàn tất, trạng thái đã ghi cục bộ sẽ được đồng bộ. Nếu cloud lỗi, dữ liệu trên máy vẫn giữ nguyên; mở lại trang này để xem lỗi hoặc thử lại.</p>
+    <label class="check"><input type="checkbox" id="auto"> Tự sao lưu sau khi chạy đổi mã</label>
+    <p class="note">Chỉ áp dụng cho sao lưu cá nhân ở trên. Nếu kho cộng đồng hoặc sao lưu cá nhân lỗi, dữ liệu trên máy vẫn giữ nguyên.</p>
     <div class="sync-meta" id="sync-meta" aria-live="polite">
       <span id="sync-state">Chưa kiểm tra kết nối</span>
       <span id="sync-last"></span>
@@ -791,14 +797,14 @@ const optionsHtml = `<!doctype html>
   </fieldset>
 
   <fieldset>
-    <legend>Kho cục bộ</legend>
+    <legend>Kho cục bộ và sao lưu cá nhân</legend>
     <div class="row">
       <button id="export">Xuất file sao lưu (.json)</button>
       <button class="danger" id="wipe">Xoá bản sao lưu trên cloud</button>
       <span class="status" id="status2"></span>
     </div>
     <p class="note"><b>Xuất file sao lưu</b> tải toàn bộ kho về máy để giữ lại hoặc chuyển sang máy khác.</p>
-    <p class="note"><b>Xoá bản sao lưu trên cloud</b> chỉ dọn bản chép trên Chrome Sync hoặc endpoint của bạn cùng phần cài đặt ở trên. Kho mã trong máy KHÔNG bị xoá — bạn sẽ không mất mã nào, và sẽ có hộp thoại xác nhận trước khi xoá.</p>
+    <p class="note"><b>Xoá bản sao lưu cá nhân</b> chỉ dọn bản chép trên Chrome Sync hoặc endpoint của bạn cùng phần cài đặt ở trên. Kho cộng đồng và kho mã trong máy KHÔNG bị xoá — bạn sẽ không mất mã nào, và sẽ có hộp thoại xác nhận trước khi xoá.</p>
   </fieldset>
  </div>
 

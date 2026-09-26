@@ -424,7 +424,11 @@ test('run tab constructs the engine through its real exported API', async () => 
   assert(/await vault\.finishRun[\s\S]{0,1400}opts\.sync\.syncNow\(await vault\.all\(\)\)/.test(panelSrc),
     'auto sync must run after finishing the local run and include the full vault');
   assert(/settings\.enabled !== false && settings\.autoSync !== false/.test(panelSrc),
-    'auto sync must require both enabled cloud sync and the auto-sync setting');
+    'auto sync must require both enabled personal backup and the auto-backup setting');
+  assert(/syncCommunityVault\(\{ pull: true, push: true \}\)/.test(panelSrc),
+    'community synchronization must remain a separate credential-free flow');
+  assert(/Đồng bộ cá nhân lỗi/.test(panelSrc) && /Đồng bộ cộng đồng lỗi/.test(panelSrc),
+    'personal-backup and community-sync failures must be labeled separately');
 });
 
 test('hidden overlays actually disappear instead of covering the page', async () => {

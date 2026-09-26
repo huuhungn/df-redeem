@@ -222,7 +222,7 @@ const DFRedeemSync = (function attachSync(root) {
   /* A verdict is only shareable when it is true for everyone. 'mine' means
    * "this account already redeemed it", which is useless (and mildly
    * identifying) to other users, so it never leaves the machine. */
-  const SHAREABLE_STATUS = new Set(['success', 'expired', 'invalid', 'gift_bug']);
+  const SHAREABLE_STATUS = new Set(['success', 'expired', 'gift_bug']);
   /* Statuses are presentation/local state. The upstream Garena error code is the
    * privacy boundary: only these code-wide outcomes may leave an installation.
    * Account/region errors can be stored as `invalid` locally, but must never be
@@ -230,9 +230,11 @@ const DFRedeemSync = (function attachSync(root) {
   /* A client only posts the globally meaningful Garena outcomes. The Worker has a
    * second allowlist, but filtering here prevents account/region status and legacy
    * local state from leaving the browser at all. */
+  /* 400054 means the submitted spelling was rejected, but some Garena codes are
+   * casing-sensitive. Until the protocol can prove the spelling is canonical, it
+   * is local evidence only and may not poison the shared vault. */
   const SHAREABLE_OUTCOMES = new Map([
     [0, 'success'],
-    [400054, 'invalid'],
     [400068, 'expired'],
     [400070, 'expired'],
     [400073, 'gift_bug'],
@@ -500,7 +502,7 @@ const DFRedeemSync = (function attachSync(root) {
           body: JSON.stringify({
             install_id: await installId(),
             rows: shareable.map((row) => ({
-              code: String(row.code).trim().toUpperCase(),
+              code: String(row.code).trim(),
               err_code: Number(row.err_code || 0),
             })),
           }),

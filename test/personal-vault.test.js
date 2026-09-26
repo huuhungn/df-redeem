@@ -114,7 +114,7 @@ async function waitForPortFree() {
       JSON.stringify(strictHealth.json));
 
     const queued = await post('/submit',
-      { code: QUEUED_WHILE_STRICT, err_code: 400054, install_id: asInstall(1) }, asClient('10.1.0.1'));
+      { code: QUEUED_WHILE_STRICT, err_code: 400068, install_id: asInstall(1) }, asClient('10.1.0.1'));
     check('a lone report stays unpromoted while two are required',
       queued.json && queued.json.confirmations === 1 && queued.json.promoted === false,
       JSON.stringify(queued.json));
@@ -144,13 +144,13 @@ async function waitForPortFree() {
       JSON.stringify(publicHealth.json));
 
     const repeatFirst = await post('/submit',
-      { code: QUEUED_WHILE_STRICT, err_code: 400054, install_id: asInstall(1) }, asClient('10.1.0.1'));
+      { code: QUEUED_WHILE_STRICT, err_code: 400068, install_id: asInstall(1) }, asClient('10.1.0.1'));
     check('a repeat from the same install cannot promote an old row',
       repeatFirst.json && repeatFirst.json.promoted === false && repeatFirst.json.confirmations === 1,
       JSON.stringify(repeatFirst.json));
 
     const confirmed = await post('/submit',
-      { code: QUEUED_WHILE_STRICT, err_code: 400054, install_id: asInstall(2) }, asClient('10.1.0.2'));
+      { code: QUEUED_WHILE_STRICT, err_code: 400068, install_id: asInstall(2) }, asClient('10.1.0.2'));
     check('a second install promotes the queued row',
       confirmed.json && confirmed.json.promoted === true && confirmed.json.confirmations === 2,
       JSON.stringify(confirmed.json));

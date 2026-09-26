@@ -151,43 +151,62 @@ test('status, kind, family, search and stats queries work', async () => {
     assert.deepStrictEqual(created.sort(), ['codes', 'meta', 'presets', 'results', 'runs']);
   });
 
+  /* a changed seed reaches existing installs by bumping its version */
   test('a changed seed reaches existing installs by bumping its version', async () => {
-    /* seedOnFirstRun skips when the stored marker >= seed.version, so editing
-     * seed.json WITHOUT bumping version silently strands every existing user
-     * on stale data. This pins the two together. */
-    const seed = require('../src/data/seed.json');
+      /* seedOnFirstRun skips when the stored marker >= seed.version, so editing
+       * seed.json WITHOUT bumping version silently strands every existing user
+       * on stale data. This pins the two together. */
+      const seed = require('../src/data/seed.json');
+      const adapter = new MemoryAdapter();
+      /* init() seeds on its own, so the version gate is observed through it. */
+      const v1 = new Vault({ adapter, seed, seedVersion: seed.version });
+      await v1.init();
+      const before = await v1.stats();
+      const marker = await adapter.get('meta', 'seed_version');
+      assert(Number(marker.value) === seed.version, 'init must record the shipped seed version');
+
+      /* Same version + changed content => skipped, the trap this test documents. */
+      const edited = JSON.parse(JSON.stringify(seed));
+      const victim = edited.codes[0];
+      victim.status = victim.status === 'expired' ? 'gift_bug' : 'expired';
+      const stale = new Vault({ adapter, seed: edited, seedVersion: edited.version });
+      const staleResult = await stale.seedOnFirstRun();
+      assert(staleResult.skipped === true, 'an unbumped seed must be skipped');
+      const staleRec = await adapter.get('codes', `gift:${victim.code}`);
+      assert(staleRec.status !== victim.status, 'the unbumped edit must NOT have landed');
+
+      /* Bumped version => the same edit lands, without duplicating records. */
+      edited.version = seed.version + 1;
+      const fresh = new Vault({ adapter, seed: edited, seedVersion: edited.version });
+      const applied = await fresh.seedOnFirstRun();
+      assert(applied.skipped !== true, 'a bumped seed version must re-import');
+      const after = await fresh.stats();
+      assert(after.total === before.total, `a re-import must not duplicate records (${before.total} -> ${after.total})`);
+      const freshRec = await adapter.get('codes', `gift:${victim.code}`);
+      assert(freshRec.status === victim.status, 'the bumped edit must land');
+    });
+
+test('legacy casing-ambiguous invalid results become retryable locally', async () => {
     const adapter = new MemoryAdapter();
-    /* init() seeds on its own, so the version gate is observed through it. */
-    const v1 = new Vault({ adapter, seed, seedVersion: seed.version });
-    await v1.init();
-    const before = await v1.stats();
-    const marker = await adapter.get('meta', 'seed_version');
-    assert(Number(marker.value) === seed.version, 'init must record the shipped seed version');
-
-    /* Same version + changed content => skipped, the trap this test documents. */
-    const edited = JSON.parse(JSON.stringify(seed));
-    const victim = edited.codes[0];
-    victim.status = victim.status === 'expired' ? 'invalid' : 'expired';
-    const stale = new Vault({ adapter, seed: edited, seedVersion: edited.version });
-    const staleResult = await stale.seedOnFirstRun();
-    assert(staleResult.skipped === true, 'an unbumped seed must be skipped');
-    const staleRec = await adapter.get('codes', `gift:${victim.code}`);
-    assert(staleRec.status !== victim.status, 'the unbumped edit must NOT have landed');
-
-    /* Bumped version => the same edit lands, without duplicating records. */
-    edited.version = seed.version + 1;
-    const fresh = new Vault({ adapter, seed: edited, seedVersion: edited.version });
-    const applied = await fresh.seedOnFirstRun();
-    assert(applied.skipped !== true, 'a bumped seed version must re-import');
-    const after = await fresh.stats();
-    assert(after.total === before.total, `a re-import must not duplicate records (${before.total} -> ${after.total})`);
-    const freshRec = await adapter.get('codes', `gift:${victim.code}`);
-    assert(freshRec.status === victim.status, 'the bumped edit must land');
+    await adapter.open();
+    await adapter.put('codes', {
+      key: 'gift:DFVNHACKCLAW1', code: 'DFVNHACKCLAW1', kind: 'giftcode',
+      status: 'invalid', err_code: 400054, result_msg: 'The current cdk does not match', shareable: true,
+    });
+    const vault = new Vault({ adapter });
+    const migrated = await vault.migrateCasingAmbiguousInvalids();
+    assert.strictEqual(migrated.migrated, 1);
+    const row = await adapter.get('codes', 'gift:DFVNHACKCLAW1');
+    assert.strictEqual(row.status, 'untried');
+    assert.strictEqual(row.err_code, 0);
+    assert.strictEqual(row.result_msg, '');
+    assert.strictEqual(row.shareable, false);
+    assert.strictEqual((await vault.migrateCasingAmbiguousInvalids()).skipped, true);
   });
 
-  test('the three field-sourced untried codes are recorded as verified invalid', async () => {
-    /* Verified against the live redeem form on 2026-09-25: all three returned
-     * 400054 for the code itself and for every OCR variant tried. */
+  test('the three field-sourced untried codes remain local-only after 400054', async () => {
+      /* 400054 can result from a casing variant. These records remain useful local
+       * history, but public data must not call them globally invalid. */
     const seed = require('../src/data/seed.json');
     const targets = ['DFOS7KZM90', 'DFOSS260404857', 'FVZELRXYAJVWVFSTS2'];
     for (const code of targets) {

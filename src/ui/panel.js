@@ -58,7 +58,7 @@ function createPanel(options) {
     gift_bug: 'Garena nhận mã nhưng quà không vào — lỗi phía họ.',
     invalid: 'Garena trả về mã không tồn tại.',
   };
-  const SHAREABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
+  const SHAREABLE = new Set(['success', 'expired', 'gift_bug']);
 
   /* vault may be injected (tests/mock) or built from the bundled class */
   const vault = opts.vault || (V ? new V.Vault({ adapter: new V.IndexedDBAdapter() }) : null);

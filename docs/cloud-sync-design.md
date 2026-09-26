@@ -39,9 +39,11 @@ Two write paths, matching how much trust each kind of data needs.
 
 ### Gift codes — automatic
 
-A gift code is self-verifying: Garena's own JSON says whether it worked. A client
-reports `{code, err_code}`. The Worker derives the only allowed global verdicts
-from that error code; it accepts per-account/region outcomes only to return a
+A gift code is self-verifying: Garena's own JSON says whether it worked. A client reports `{code, err_code}` using the original spelling. The Worker
+computes an uppercase internal identity key only for deduplication, then derives
+the only allowed global verdicts from the error code. `400054` is intentionally
+local-only: Garena can reject a casing variant even though the exact submitted
+spelling works. The Worker accepts per-account/region outcomes only to return a
 normal response, then drops them before the queue. Promotion requires **two
 separate per-install reporter IDs** agreeing on the same verdict for the same
 code. These IDs are client-generated and are not Sybil-resistant, so the rule
