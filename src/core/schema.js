@@ -3,7 +3,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
   'use strict';
 
   const DB_NAME = 'df-redeem-vault';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   const STORES = Object.freeze({
     codes: 'codes',
     runs: 'runs',
@@ -134,6 +134,8 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       ensureIndex(results, 'run_id', 'run_id');
       ensureIndex(results, 'timestamp', 'timestamp');
     }
+    /* v3 stores the same schema; it triggers Vault.init() to correct exactly the
+     * legacy 400069 rows that older builds called `exhausted`. */
     return newVersion;
   }
 

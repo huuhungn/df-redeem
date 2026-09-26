@@ -223,9 +223,7 @@ function createPanel(options) {
         const reply = await opts.sync.communityPull();
         if (reply && reply.ok) {
           const merged = S.mergeCommunityCodes(await vault.all(), reply.codes || []);
-          for (const row of merged.records) {
-            if (row.source === 'community') await vault.upsert(row);
-          }
+          for (const row of merged.changedRecords || []) await vault.upsert(row);
           pulled = merged;
           await refresh();
         }

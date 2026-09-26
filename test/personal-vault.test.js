@@ -1,15 +1,9 @@
 #!/usr/bin/env node
-/* test/personal-vault.test.js — single-install (personal vault) mode.
+/* test/public-vault.test.js — public two-reporter confirmation policy.
  *
- * worker.test.js pins CONFIRMATIONS_REQUIRED to 2 so it can exercise consensus
- * between two installs. This suite covers the shipped default of 1, plus the one
- * migration hazard that default introduced: rows queued while the threshold was
- * still 2 carry promoted:false, and the write-skip optimisation would happily
- * leave them that way forever unless a threshold change also counts as "moved".
- *
- * Both phases reuse ONE persist-to directory on purpose — that shared KV state is
- * what makes the second phase a real migration rather than a fresh start.
- */
+ * worker.test.js already verifies the live consensus mechanics. This suite keeps
+ * the former personal-threshold migration fixture under the public policy: old
+ * queued rows remain unpromoted until a second installation confirms them. */
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -141,26 +135,25 @@ async function waitForPortFree() {
     server = null;
     check('the port is released between phases', await waitForPortFree());
 
-    /* ── phase 2: threshold 1, same KV — the personal-vault default ────────── */
-    server = await startWorker(STATE_DIR, 1);
+    /* ── phase 2: public threshold 2, same KV — no one-report promotion ─── */
+    server = await startWorker(STATE_DIR, 2);
 
-    const soloHealth = await get('/health');
-    check('phase 2 health reports the personal threshold',
-      soloHealth.json && soloHealth.json.confirmations_required === 1,
-      JSON.stringify(soloHealth.json));
+    const publicHealth = await get('/health');
+    check('phase 2 health keeps the public threshold',
+      publicHealth.json && publicHealth.json.confirmations_required === 2,
+      JSON.stringify(publicHealth.json));
 
-    /* The migration hazard: this row already has its only reporter recorded, so
-     * nothing about it "changed" except the threshold. If the write-skip logic
-     * ignores that, it stays queued forever and lowering the threshold is a
-     * silent no-op for every row submitted before the change. */
-    const remigrated = await post('/submit',
+    const repeatFirst = await post('/submit',
       { code: QUEUED_WHILE_STRICT, err_code: 400054, install_id: asInstall(1) }, asClient('10.1.0.1'));
-    check('a row queued under the old threshold promotes on re-report',
-      remigrated.json && remigrated.json.promoted === true && remigrated.json.confirmations === 1,
-      JSON.stringify(remigrated.json));
-    check('that promotion is reported as a real change, not a no-op',
-      remigrated.json && remigrated.json.unchanged === false,
-      JSON.stringify(remigrated.json));
+    check('a repeat from the same install cannot promote an old row',
+      repeatFirst.json && repeatFirst.json.promoted === false && repeatFirst.json.confirmations === 1,
+      JSON.stringify(repeatFirst.json));
+
+    const confirmed = await post('/submit',
+      { code: QUEUED_WHILE_STRICT, err_code: 400054, install_id: asInstall(2) }, asClient('10.1.0.2'));
+    check('a second install promotes the queued row',
+      confirmed.json && confirmed.json.promoted === true && confirmed.json.confirmations === 2,
+      JSON.stringify(confirmed.json));
 
     const migratedPending = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
     check('the migrated row now reaches the publish queue',
@@ -168,19 +161,18 @@ async function waitForPortFree() {
         && migratedPending.json.rows.some((r) => r.code === QUEUED_WHILE_STRICT),
       JSON.stringify(migratedPending.json));
 
-    /* A fresh code needs no second install at all now. */
+    /* A fresh code also needs a distinct second reporter. */
     const solo = await post('/submit',
       { code: SOLO, err_code: 0, install_id: asInstall(2) }, asClient('10.1.0.2'));
-    check('a single install promotes a new code immediately',
-      solo.json && solo.json.promoted === true && solo.json.confirmations === 1,
+    check('a single install cannot promote a new code',
+      solo.json && solo.json.promoted === false && solo.json.confirmations === 1,
       JSON.stringify(solo.json));
 
-    /* Write-skip must still hold at threshold 1, or every vault push rewrites
-     * every row and walks back into the daily KV put() quota. */
     const resubmit = await post('/submit',
       { code: SOLO, err_code: 0, install_id: asInstall(2) }, asClient('10.1.0.2'));
-    check('re-reporting an already promoted row writes nothing',
-      resubmit.json && resubmit.json.unchanged === true && resubmit.json.promoted === true,
+    check('re-reporting from the same install does not add confirmation',
+      resubmit.json && resubmit.json.unchanged === true && resubmit.json.promoted === false
+      && resubmit.json.confirmations === 1,
       JSON.stringify(resubmit.json));
 
     /* A client too old to send install_id must still count as exactly one
@@ -201,40 +193,29 @@ async function waitForPortFree() {
       junkA.json && junkB.json && junkB.json.confirmations === 1,
       JSON.stringify(junkB.json));
 
-    /* Batch and single-row paths share recordVerdict; assert the batch path also
-     * promotes solo so the two cannot drift. */
+    /* Batch and single-row paths share recordVerdict: batch also requires two. */
     const batch = await post('/submit-batch', {
       install_id: asInstall(3),
       rows: [{ code: 'DFBATCHSOLO01', err_code: 400070 }],
     }, asClient('10.1.0.5'));
-    check('the batch path also promotes with one install',
+    check('the batch path also needs a second install',
       batch.json && batch.json.results && batch.json.results[0]
-        && batch.json.results[0].promoted === true,
+        && batch.json.results[0].promoted === false && batch.json.results[0].confirmations === 1,
       JSON.stringify(batch.json));
 
-    /* The publish side has to agree with the threshold, or lowering it just moves
-     * the stall downstream: tools/merge-pending.js hardcoded a minimum of 2 and
-     * silently rejected every row this Worker promoted. It reads /health now, so
-     * assert the contract that makes that possible is actually served. */
     const contract = await get('/health');
-    check('/health publishes the threshold the merge tool reads',
-      contract.json && contract.json.confirmations_required === 1,
+    check('/health publishes the public threshold',
+      contract.json && contract.json.confirmations_required === 2,
       JSON.stringify(contract.json));
 
-    /* And the rows really are offered for publication, not merely flagged. */
     const offered = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
     const offeredCodes = (offered.json && offered.json.rows || []).map((r) => r.code);
-    check('every solo-promoted row is offered on /pending',
-      [QUEUED_WHILE_STRICT, SOLO, 'DFBATCHSOLO01'].every((c) => offeredCodes.includes(c)),
+    check('only the two-reporter row is offered on /pending',
+      offeredCodes.includes(QUEUED_WHILE_STRICT) && !offeredCodes.includes(SOLO)
+      && !offeredCodes.includes('DFBATCHSOLO01') && !offeredCodes.includes(ABANDONED_WHILE_STRICT),
       JSON.stringify(offeredCodes));
-    /* The row nobody re-reported must be published too. /pending used to filter on
-     * the stored `promoted` flag, which is only rewritten on a fresh report, so a
-     * backlog that stopped receiving reports stayed invisible after the threshold
-     * dropped — the Worker said 291 pending and /pending returned 0 rows. */
-    check('a row never re-reported after the drop is published too',
-      offeredCodes.includes(ABANDONED_WHILE_STRICT), JSON.stringify(offeredCodes));
-    check('/pending reports confirmations the merge tool can compare',
-      (offered.json && offered.json.rows || []).every((r) => Number(r.confirmations) >= 1),
+    check('/pending only offers the current threshold or higher',
+      (offered.json && offered.json.rows || []).every((r) => Number(r.confirmations) >= 2),
       JSON.stringify(offered.json && offered.json.rows));
   } catch (error) {
     failed += 1;

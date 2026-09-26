@@ -248,6 +248,8 @@ const TEST_CONFIRMATIONS = 2;
       { code: 'DFBATCHGOOD1', err_code: 0 },
       { code: 'DFBATCHDEAD1', err_code: 400068 },
       { code: 'DFBATCHMINE1', err_code: 400067 },
+      { code: 'DFBATCHUSED1', err_code: 400069 },
+      { code: 'DFBATCHREGN1', err_code: 400055 },
       { code: 'DFBATCHJUNK1', err_code: 999999 },
       { code: 'sh', err_code: 0 },
     ];
@@ -259,8 +261,10 @@ const TEST_CONFIRMATIONS = 2;
     check('only publishable rows are queued', batch.json && batch.json.queued === 2, JSON.stringify(batch.json));
     check('an unknown err_code and a malformed code are rejected',
       batch.json && batch.json.rejected === 2, JSON.stringify(batch.json));
-    check('a per-account row is accepted without queueing',
-      batch.json && batch.json.results.some((r) => r.code === 'DFBATCHMINE1' && r.ok === true && r.queued === false),
+    check('per-account rows are accepted without queueing',
+      batch.json && batch.json.results.some((r) => r.code === 'DFBATCHMINE1' && r.ok === true && r.queued === false)
+      && batch.json.results.some((r) => r.code === 'DFBATCHUSED1' && r.ok === true && r.queued === false)
+      && batch.json.results.some((r) => r.code === 'DFBATCHREGN1' && r.ok === true && r.queued === false),
       JSON.stringify(batch.json && batch.json.results));
 
     /* The batched rows must land in the same queue /submit writes to, which means

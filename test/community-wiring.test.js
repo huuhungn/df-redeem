@@ -27,11 +27,11 @@ const check = (name, ok, detail) => {
 const syncSrc = read('src/core/sync.js');
 const panelSrc = read('src/ui/panel.js');
 
-const returnsRecords = /return \{ records: \[\.\.\.byCode\.values\(\)\], added, updated \}/.test(syncSrc);
-check('mergeCommunityCodes returns a records array', returnsRecords);
+const returnsRecords = /return \{ records: \[\.\.\.byCode\.values\(\)\], changedRecords, added, updated \}/.test(syncSrc);
+check('mergeCommunityCodes returns records plus changed records for persistence', returnsRecords);
 
-check('panel iterates merged.records, not merged.rows',
-  /for \(const row of merged\.records\)/.test(panelSrc) && !/merged\.rows/.test(panelSrc),
+check('panel persists changed records without traversing the full merge result',
+  /for \(const row of merged\.changedRecords \|\| \[\]\)/.test(panelSrc) && !/merged\.rows/.test(panelSrc),
   (panelSrc.match(/merged\.\w+/g) || []).join(','));
 
 /* ── every target that shows the card must be able to use it ────────────── */

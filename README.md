@@ -35,11 +35,12 @@ Two data paths, deliberately different, because the trust model is different.
 
 **Gift codes sync automatically.** A gift code is objectively alive or dead, and
 the Garena API is the judge — so no human needs to approve anything. When your
-extension redeems a code, it reports the code and Garena's numeric response to a
-Cloudflare Worker. Once the configured number of independent installs agree on a
-verdict, a scheduled GitHub Action folds the row into `data/codes.json`. This
-repository ships the public vault with a threshold of **two independent installs**.
-Every client reads the published list and skips codes already known to be dead.
+When a user opens the extension it pulls the current public vault; after a
+redeem run, it submits only code-wide outcomes. A scheduled GitHub Action folds a
+row into `data/codes.json` once two separate per-install reporter IDs agree on a
+verdict. Reporter IDs are client-generated, so this is a safety check against
+accidental/isolated reports—not Sybil-resistant authentication. Every client
+reads the published list and skips codes already known to be dead.
 
 **Gunsmith presets need a human.** A preset is a subjective build that nobody
 can verify automatically, so presets only enter `data/presets.json` through
@@ -54,7 +55,11 @@ are true for everyone. Specifically **not** sent:
 - Codes you have not tried
 - `400067` ("you already redeemed this") — that is about your account, not the code
 - `400069` ("already used") — that is also account-specific in this client and is never published
-- Any account identifier, cookie, token, or timestamp
+- `400055` / `400056` (account or region mismatch) and transient/unknown errors
+- Account identity, cookie, token, timestamp, or local redemption history
+
+The Worker additionally receives a random per-install identifier used only to
+count distinct reporters for the same outcome; it is not a game account identity.
 
 Turn contributions off in the options page and the extension still reads the
 shared vault; it just stops reporting. Turn the whole feature off and it never
@@ -88,6 +93,14 @@ after each completed run it pulls first, then contributes only global outcomes.
 
 The published list is committed by the scheduled GitHub workflow, so it becomes
 available to every new extension install through the default public URL.
+
+### Legacy confirmation policy
+
+`data/codes.json` may contain older rows with `confirmations: 1` from the
+pre-public personal-vault policy. They are retained as historical, curated data;
+the public Worker never upgrades their count without independent evidence, and
+new submissions require two reporter IDs. Do not interpret legacy count-one rows
+as freshly two-party confirmed.
 
 ## Release downloads
 

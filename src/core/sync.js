@@ -222,7 +222,21 @@ const DFRedeemSync = (function attachSync(root) {
   /* A verdict is only shareable when it is true for everyone. 'mine' means
    * "this account already redeemed it", which is useless (and mildly
    * identifying) to other users, so it never leaves the machine. */
-  const SHAREABLE_STATUS = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
+  const SHAREABLE_STATUS = new Set(['success', 'expired', 'invalid', 'gift_bug']);
+  /* Statuses are presentation/local state. The upstream Garena error code is the
+   * privacy boundary: only these code-wide outcomes may leave an installation.
+   * Account/region errors can be stored as `invalid` locally, but must never be
+   * reported to the public broker. */
+  /* A client only posts the globally meaningful Garena outcomes. The Worker has a
+   * second allowlist, but filtering here prevents account/region status and legacy
+   * local state from leaving the browser at all. */
+  const SHAREABLE_OUTCOMES = new Map([
+    [0, 'success'],
+    [400054, 'invalid'],
+    [400068, 'expired'],
+    [400070, 'expired'],
+    [400073, 'gift_bug'],
+  ]);
 
   /* Fold the community list into local records: it may only ever ADD codes the
    * user has never tried, or mark a locally-untried code as already dead. A
@@ -238,6 +252,7 @@ const DFRedeemSync = (function attachSync(root) {
     }
     let added = 0;
     let updated = 0;
+    const changedRecords = [];
 
     for (const remote of Array.isArray(communityCodes) ? communityCodes : []) {
       const submittedCode = String(remote && remote.code || '').trim();
@@ -248,7 +263,7 @@ const DFRedeemSync = (function attachSync(root) {
 
       const local = byCode.get(code);
       if (!local) {
-        byCode.set(code, {
+        const created = {
           code: submittedCode,
           kind: 'giftcode',
           /* Someone else's success is still untried *here*, so the user can
@@ -261,7 +276,9 @@ const DFRedeemSync = (function attachSync(root) {
           shareable: status === 'success',
           tags: ['community'],
           notes: '',
-        });
+        };
+        byCode.set(code, created);
+        changedRecords.push(created);
         added += 1;
         continue;
       }
@@ -270,11 +287,12 @@ const DFRedeemSync = (function attachSync(root) {
         local.status = status;
         local.err_code = Number(remote.err_code || 0);
         local.source = local.source || 'community';
+        changedRecords.push({ ...local });
         updated += 1;
       }
     }
 
-    return { records: [...byCode.values()], added, updated };
+    return { records: [...byCode.values()], changedRecords, added, updated };
   }
 
   function createSyncService(options) {
@@ -455,8 +473,8 @@ const DFRedeemSync = (function attachSync(root) {
       if (!endpoint) return { ok: false, skipped: 'no-endpoint', sent: 0 };
       if (!fetchFn) return { ok: false, error: 'fetch không khả dụng', sent: 0 };
 
-      const shareable = (Array.isArray(records) ? records : []).filter(
-        (row) => row && row.code && SHAREABLE_STATUS.has(String(row.status || '')),
+      const shareable = (Array.isArray(records) ? records : []).filter((row) =>
+        row && row.code && SHAREABLE_OUTCOMES.get(Number(row.err_code)) === String(row.status || ''),
       );
       if (!shareable.length) return { ok: true, sent: 0, skipped: 'nothing-shareable' };
 

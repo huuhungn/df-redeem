@@ -28,7 +28,7 @@ So the token stays server-side, and the extension never holds a credential.
   │  • dedupes               │
   │  • needs N confirmations │
   └──────────┬───────────────┘
-             │ every 30 min, GitHub Action pulls the promoted queue
+             │ every six hours, GitHub Action pulls the promoted queue
              ▼
   ┌──────────────────────────┐
   │ GitHub Action (scheduled)│ → commits to data/codes.json → CDN updates
@@ -40,10 +40,13 @@ Two write paths, matching how much trust each kind of data needs.
 ### Gift codes — automatic
 
 A gift code is self-verifying: Garena's own JSON says whether it worked. A client
-reports `{code, err_code, msg}`. The Worker trusts nothing but still has cheap
-proof available, so promotion requires **two independent reports** (different IP
-hashes) of the same verdict for the same code. One malicious client cannot inject
-a fake code; it can only waste its own quota.
+reports `{code, err_code}`. The Worker derives the only allowed global verdicts
+from that error code; it accepts per-account/region outcomes only to return a
+normal response, then drops them before the queue. Promotion requires **two
+separate per-install reporter IDs** agreeing on the same verdict for the same
+code. These IDs are client-generated and are not Sybil-resistant, so the rule
+reduces accidental or isolated bad reports; it is not proof against a determined
+malicious publisher.
 
 Codes are public, low-value, and already meant to be shared, so no human gate.
 
@@ -79,9 +82,10 @@ the file — the manual export path already exists.
   KV and nothing is lost.
 - **Offline-first.** Cloud sync is opt-in; the extension works fully offline and
   never blocks a redeem cycle on the network.
-- **No personal data.** A submission carries the code, the verdict, and a salted
-  IP hash used only for dedupe and rate-limiting. No account, no cookie, no
-  identifier of the user.
+- **Minimal reporting metadata.** A submission carries the code, numeric outcome,
+  a client-generated per-install reporter ID, and the Worker derives a salted IP
+  hash for rate limiting. It carries no game account, cookie, token, timestamp,
+  or local history; the reporter ID is not Sybil-resistant authentication.
 - **Reversible.** Every automated change lands as a normal commit and can be
   reverted with `git revert`.
 
@@ -103,3 +107,7 @@ bundled seed.
   "codes": [{ "code": "DF1314754", "status": "success", "err_code": 0, "confirmations": 2 }]
 }
 ```
+
+Historical curated rows can have `confirmations: 1` from the former personal
+policy. They remain readable but are not evidence that the current public policy
+has independently re-confirmed them; new Worker promotions require two IDs.

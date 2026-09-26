@@ -256,8 +256,26 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
 
     async init() {
       await this.adapter.open();
+      await this.migrateLegacyUsedStatus();
       await this.seedOnFirstRun();
       return this;
+    }
+
+    /* Older releases mistakenly persisted Garena 400069 (this account already
+     * used the code) as global-looking `exhausted`. Correct only that exact
+     * legacy pair; real exhausted outcomes, if any, are left untouched. */
+    async migrateLegacyUsedStatus() {
+      const marker = await this.adapter.get(STORES.meta, 'migrate_used_400069_v1');
+      if (marker) return { migrated: 0, skipped: true };
+      let migrated = 0;
+      for (const row of await this.adapter.getAll(STORES.codes)) {
+        if (row && row.status === 'exhausted' && Number(row.err_code) === 400069) {
+          await this.adapter.put(STORES.codes, { ...row, status: 'mine' });
+          migrated += 1;
+        }
+      }
+      await this.adapter.put(STORES.meta, { key: 'migrate_used_400069_v1', migrated, migrated_at: this.clock() });
+      return { migrated, skipped: false };
     }
 
     async seedOnFirstRun(seedOverride) {

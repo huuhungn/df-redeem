@@ -23,7 +23,7 @@ const TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 /* Same publishable set as the Worker. Duplicated deliberately: if the Worker is
  * ever compromised or misconfigured, the repo side still refuses to write an
  * account-specific verdict into public data. */
-const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
+const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
 const CODE_RE = /^[A-Z0-9]{6,32}$/;
 
 /* Test probes submitted to the live Worker while verifying the pipeline. The

@@ -232,6 +232,17 @@ test('status, kind, family, search and stats queries work', async () => {
     assert.strictEqual(await vault.exportShareList(), 'DFPUBLIC1');
   });
 
+  test('migrates only the legacy 400069 exhausted pair to local mine', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.put(Schema.STORES.codes, Schema.codeRecord({ code: 'DFLEGACYUSED1', status: 'exhausted', err_code: 400069 }));
+    await adapter.put(Schema.STORES.codes, Schema.codeRecord({ code: 'DFKEEPDEAD01', status: 'exhausted', err_code: 400073 }));
+    const vault = new Vault({ adapter });
+    await vault.init();
+    const rows = await vault.all();
+    assert.strictEqual(rows.find((row) => row.code === 'DFLEGACYUSED1').status, 'mine');
+    assert.strictEqual(rows.find((row) => row.code === 'DFKEEPDEAD01').status, 'exhausted');
+  });
+
   test('a completed run writes the verdict through to the stored status', async () => {
     /* The panel once passed the engine's result object straight into
      * recordAttempt(codeValue, result, runId), so the code became an object and

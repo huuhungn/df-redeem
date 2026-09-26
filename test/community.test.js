@@ -97,10 +97,14 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     });
     const result = await service.reportOutcomes([
       { code: 'good1code', status: 'success', err_code: 0 },
-      { code: 'dead1code', status: 'expired', err_code: 400054 },
+      { code: 'dead1code', status: 'invalid', err_code: 400054 },
       { code: 'mine1code', status: 'mine', err_code: 400067 },
       { code: 'used1code', status: 'mine', err_code: 400069 },
       { code: 'untried01', status: 'untried', err_code: 0 },
+      { code: 'region1code', status: 'invalid', err_code: 400055 },
+      { code: 'account1code', status: 'invalid', err_code: 400056 },
+      { code: 'legacy1code', status: 'exhausted', err_code: 400069 },
+      { code: 'unknown1code', status: 'invalid', err_code: 999999 },
     ]);
 
     /* One request for the whole vault: row-by-row reporting burned the broker's
@@ -116,6 +120,8 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('an untried code is never reported', !posted.some((p) => p.code === 'UNTRIED01'), JSON.stringify(posted));
     check('the per-account error code never leaves the machine', !posted.some((p) => p.err_code === 400067), JSON.stringify(posted));
     check('a repeat-redemption 400069 never leaves the machine', !posted.some((p) => p.err_code === 400069), JSON.stringify(posted));
+    check('account and region errors never leave the machine', !posted.some((p) => p.err_code === 400055 || p.err_code === 400056), JSON.stringify(posted));
+    check('unknown or transient-looking local errors never leave the machine', !posted.some((p) => p.err_code === 999999), JSON.stringify(posted));
     check('reports carry only code and err_code',
       posted.every((p) => Object.keys(p).sort().join(',') === 'code,err_code'), JSON.stringify(posted));
     check('reported codes are normalised to uppercase', posted.every((p) => p.code === p.code.toUpperCase()), JSON.stringify(posted));
@@ -259,7 +265,7 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     ];
     const remote = [
       { code: 'LOCALSUCCESS', status: 'expired' },     // must NOT overwrite first-hand success
-      { code: 'LOCALUNTRIED', status: 'exhausted' },   // may mark a never-tried code dead
+      { code: 'LOCALUNTRIED', status: 'expired', err_code: 400068 },   // may mark a never-tried code dead
       { code: 'LOCALEXPIRED', status: 'success' },     // must NOT resurrect a local dead verdict
       { code: 'BRANDNEWCODE', status: 'success' },     // new, usable here
       { code: 'BRANDNEWDEAD', status: 'invalid' },     // new, already dead
@@ -270,7 +276,9 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     const find = (code) => merged.records.find((r) => r.code === code);
 
     check('a first-hand success is never overwritten', find('LOCALSUCCESS').status === 'success', JSON.stringify(find('LOCALSUCCESS')));
-    check('a locally-untried code can be marked dead', find('LOCALUNTRIED').status === 'exhausted', JSON.stringify(find('LOCALUNTRIED')));
+    check('a locally-untried code can be marked dead', find('LOCALUNTRIED').status === 'expired', JSON.stringify(find('LOCALUNTRIED')));
+    check('every added or remotely-updated row is surfaced for durable persistence',
+      merged.changedRecords.length === 3 && merged.changedRecords.some((row) => row.code === 'LOCALUNTRIED'), JSON.stringify(merged.changedRecords));
     check('a local dead verdict is not resurrected', find('LOCALEXPIRED').status === 'expired', JSON.stringify(find('LOCALEXPIRED')));
     check("someone else's success arrives as untried here", find('BRANDNEWCODE').status === 'untried', JSON.stringify(find('BRANDNEWCODE')));
     check('a new dead code arrives already dead', find('BRANDNEWDEAD').status === 'invalid', JSON.stringify(find('BRANDNEWDEAD')));

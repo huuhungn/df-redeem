@@ -23,22 +23,19 @@ const CODE_RE = /^[A-Z0-9]{6,32}$/;
  * cannot invent a status string — it reports err_code and the Worker decides. */
 import { VERDICT_BY_ERR, PER_ACCOUNT, TRANSIENT } from './verdicts.js';
 
-/* Verdicts that may appear in the published file. 'exhausted' has no err_code
- * mapped to it any more (400073 is gift_bug, per garena.js) but rows carrying it
- * exist in the seed, so it stays readable — it simply cannot be newly submitted. */
-const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
+/* Verdicts that may appear in the public file. Account-local `exhausted` is
+ * deliberately not publishable: no current Garena error establishes it for all
+ * accounts. Historical rows remain readable in the repository but are never
+ * newly accepted or promoted by this Worker. */
+const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
 
-/* A code is promoted once this many *independent* installs agree on a verdict.
- *
- * This vault is personal: the operator's own install is the only reporter, so a
- * threshold of 2 could never be met and every row stayed queued forever. It is a
- * wrangler var rather than a literal so a shared deployment can raise it without
- * a code change — and it should be raised rather than left at 1 if the vault is
- * ever shared, because one install can only vouch for what it actually redeemed. */
-const DEFAULT_CONFIRMATIONS = 1;
+/* Public deployment fails safe: a malformed/missing variable still needs two
+ * reporter IDs before promotion. A UUID is client asserted, so this reduces
+ * accidental bad reports; it is not Sybil-resistant authentication. */
+const DEFAULT_CONFIRMATIONS = 2;
 function confirmationsRequired(env) {
   const configured = Number(env && env.CONFIRMATIONS_REQUIRED);
-  return Number.isFinite(configured) && configured >= 1 ? configured : DEFAULT_CONFIRMATIONS;
+  return Number.isFinite(configured) && configured >= 2 ? configured : DEFAULT_CONFIRMATIONS;
 }
 
 const MAX_SUBMITS_PER_WINDOW = 120;
