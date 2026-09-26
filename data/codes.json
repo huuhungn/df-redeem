@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updated_at": "2026-09-26T03:25:32.071Z",
+  "updated_at": "2026-09-26T11:29:17.753Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
     "success": 208,
-    "invalid": 13,
-    "expired": 73,
+    "invalid": 48,
+    "expired": 85,
     "gift_bug": 10
   },
   "codes": [
@@ -17,11 +17,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "6PLCFGVD9MG",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "85EWN4XYBJFNCPKBADR",
       "status": "invalid",
       "err_code": 400054,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "85EWN4XYBJFNPKBADR",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "A5Z1NDW8K3PJLU",
@@ -36,6 +50,13 @@
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "ACESXMAJOR",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "ACUQJTXY7VXGJXCTBNQU",
@@ -59,6 +80,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "BD52XMXYJ2DFGCQNQ4",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "BD52XMXYYJ2DFGCQNQ4",
       "status": "invalid",
       "err_code": 400054,
@@ -73,11 +101,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "CLARITY152",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DAICHIENBOBA2719",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DAICHIENBOBA5228",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DAICHIENBOBA6167",
@@ -143,6 +185,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DF666MAJOR",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFADVN74",
       "status": "success",
       "err_code": 0,
@@ -162,6 +211,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFAMM008",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFAMMO08",
@@ -878,11 +934,32 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFSIX666",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFSIXMAJOR6",
       "status": "expired",
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFSIXMAJORCHAMP",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFSIXTOPACE",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFSIXVIP888",
@@ -1536,6 +1613,48 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFVNHACKCLAW1",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFVNNOX5",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFVNSINEVA6",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFVNTOXIK4",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFVNULURU3",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFVNVYRON2",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFVOYAGE901",
       "status": "success",
       "err_code": 0,
@@ -1569,6 +1688,13 @@
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFVSH5N4CZ",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFVSU2X6M8",
@@ -1620,11 +1746,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFWPNX3",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFWPNX36",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFXSIXMAJOR6",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "F2X6E3XY3PJDCE5RT7P",
@@ -1634,11 +1774,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "FMOMENT479",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "FVZELRXYAJVWVFSTS2",
       "status": "invalid",
       "err_code": 400054,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "FVZELRXYAJWVIPFSTSZ",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "FVZELRXYAJWVVIFSTSZ",
@@ -1648,11 +1802,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "GAARENADFCBT2503Z6T9",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "GADFZEBRA",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "GADZEBRA",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "GARENADFCBT2503C3F4",
@@ -1711,6 +1879,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "GGWPSIXMAJOR66",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "HEDELTAFORCE3630",
       "status": "success",
       "err_code": 0,
@@ -1753,11 +1928,32 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "HEWDELTAFORCE9026",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "HJRTRKXYLMCTYCYEY64H",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "HJRTRKXYLMCTYYCEY64H",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "JGHMCMXYA",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "JGHMCMXYA6PLCFGVD9MG",
@@ -1865,11 +2061,39 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "MSZ7HMXYYGHJP8AY7HPK",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "MVPSOLDFSIX",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "N4SQWGXGYCHW7GUCI3BJY",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "N4SQWGXYCHW7GUCI3BJY",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "POC3005553",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "POC3005S19",
@@ -1914,11 +2138,53 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "POC3105552",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "POC3105559",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "POC3105596",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "POC3105S31",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "POC3105S51",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "POC3105S52",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "POC3105S59",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "POC3105S64",
@@ -1954,6 +2220,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "PROSOLMAJOR",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "PWC260418S11",
@@ -2012,6 +2285,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "RETURNING",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "RETURNINGWARRIOR1",
       "status": "success",
       "err_code": 0,
@@ -2033,11 +2313,32 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "SIXMAJORGOGO",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "SIXMAJORMVP",
       "status": "expired",
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "SIXMAJORTOP",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "SOLDFACE007",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "SOLDFWIN360",
@@ -2047,11 +2348,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "SOLMAJORGG9",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "SOLPROMAJOR",
       "status": "expired",
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "SSCDKFXY5AKDZQJJLKXQ",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "SSCKDFXY5AKDZQJJLKXQ",
@@ -2115,6 +2430,20 @@
       "err_code": 400070,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "VIP999DFSIX",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "WARRIOR3",
+      "status": "invalid",
+      "err_code": 400054,
+      "confirmations": 1,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "WELCOMETODF",
