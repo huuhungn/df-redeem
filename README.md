@@ -38,9 +38,8 @@ the Garena API is the judge — so no human needs to approve anything. When your
 extension redeems a code, it reports the code and Garena's numeric response to a
 Cloudflare Worker. Once the configured number of independent installs agree on a
 verdict, a scheduled GitHub Action folds the row into `data/codes.json`. This
-repository ships that threshold as **one** for its personal vault; a shared or
-public deployment can raise `CONFIRMATIONS_REQUIRED` (details below). Every
-client reads that file and skips codes already known to be dead.
+repository ships the public vault with a threshold of **two independent installs**.
+Every client reads the published list and skips codes already known to be dead.
 
 **Gunsmith presets need a human.** A preset is a subjective build that nobody
 can verify automatically, so presets only enter `data/presets.json` through
@@ -54,6 +53,7 @@ are true for everyone. Specifically **not** sent:
 
 - Codes you have not tried
 - `400067` ("you already redeemed this") — that is about your account, not the code
+- `400069` ("already used") — that is also account-specific in this client and is never published
 - Any account identifier, cookie, token, or timestamp
 
 Turn contributions off in the options page and the extension still reads the
@@ -69,7 +69,34 @@ submission, and rate-limits per IP. How many independent installs must agree
 before a verdict is published is a deployment choice — see
 `CONFIRMATIONS_REQUIRED` below and `docs/cloud-sync-design.md`.
 
-## Self-hosting the broker
+### Public community synchronization
+
+The public release uses **two independent installations** before publishing a
+shared verdict. When a user opens the extension it pulls the latest shared vault;
+after each completed run it pulls first, then contributes only global outcomes.
+
+- `0` success is shared as a code that is usable, but remains **untried** for
+  every other account so each user may redeem it themselves.
+- `400068` / `400070` expired, `400054` invalid, and `400073` gift errors are
+  shared after the confirmation threshold so later users do not waste requests.
+- `400067` and `400069` mean that **that specific account** already received or
+  used the reward. They are stored locally as `mine`, never published, and never
+  overwrite another user's local status.
+- The broker receives only the code, Garena's numeric response, and a random
+  per-install identifier for confirmation counting. It never receives an account
+  identifier, session, cookie, token, timestamps, or local history.
+
+The published list is committed by the scheduled GitHub workflow, so it becomes
+available to every new extension install through the default public URL.
+
+## Release downloads
+
+Download the latest `df-redeem-extension-v*.zip` asset from the repository's
+[Releases](../../releases). Extract it, open `chrome://extensions`, enable
+**Developer mode**, choose **Load unpacked**, and select the extracted folder.
+For updates, extract the new release over a separate folder and click **Reload**
+on the existing extension card.
+
 
 ```bash
 cd worker
@@ -97,12 +124,13 @@ success while syncing nothing.)
 `worker/wrangler.jsonc` sets `CONFIRMATIONS_REQUIRED`, the number of distinct
 installs that must report the same verdict before it is published:
 
-- **`1`** (the shipped default) suits a personal vault, where the operator's own
-  install is the only reporter. A second one can never arrive, so any higher
-  value queues every row forever.
-- **`2` or more** suits a shared or public vault. Raise it there: one install can
-  only vouch for what it actually redeemed, and a single hostile client should not
-  be able to publish on its own.
+- **`1`** suits a personal vault, where the operator's own install is the only
+  reporter. A second one can never arrive, so any higher value queues every row
+  forever.
+- **`2`** is the public release default. Two different extension installs must
+  observe the same globally meaningful result before it is published.
+- **`3` or more** increases resistance to false reports, but delays shared updates
+  and can leave rare codes pending indefinitely.
 
 Changing it takes effect immediately for queued rows — eligibility is evaluated
 when `/pending` is read, not frozen when the row was submitted.

@@ -13,7 +13,7 @@
 
 function createPanel(options) {
   const opts = options || {};
-  const version = opts.version || '3.0.0';
+  const version = opts.version || '3.1.0';
   const surface = opts.surface || 'drawer'; // drawer | page | popup
   const store = opts.store || {
     get: (k, d) => { try { const v = localStorage.getItem('dfRedeem:' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
@@ -58,7 +58,7 @@ function createPanel(options) {
     gift_bug: 'Garena nhận mã nhưng quà không vào — lỗi phía họ.',
     invalid: 'Garena trả về mã không tồn tại.',
   };
-  const SHAREABLE = new Set(['success', 'mine']);
+  const SHAREABLE = new Set(['success', 'expired', 'invalid', 'gift_bug']);
 
   /* vault may be injected (tests/mock) or built from the bundled class */
   const vault = opts.vault || (V ? new V.Vault({ adapter: new V.IndexedDBAdapter() }) : null);
@@ -208,6 +208,34 @@ function createPanel(options) {
 
   const shareableCodes = () => cache.codes.filter((r) => SHAREABLE.has(r.status));
   const untriedCodes = () => cache.codes.filter((r) => r.status === 'untried');
+
+  /* The community contract has two one-way rules: remote dead-code verdicts may
+   * mark a local untried code as dead, while this installation only publishes
+   * verdicts that are true for every account. A local `mine` row is therefore
+   * never sent and is never overwritten by someone else's public outcome. */
+  async function syncCommunityVault(options) {
+    const cfg = options || {};
+    if (!vault || !opts.sync) return { pulled: null, pushed: null };
+    let pulled = null;
+    let pushed = null;
+    if (cfg.pull !== false && opts.sync.communityPull && S && S.mergeCommunityCodes) {
+      try {
+        const reply = await opts.sync.communityPull();
+        if (reply && reply.ok) {
+          const merged = S.mergeCommunityCodes(await vault.all(), reply.codes || []);
+          for (const row of merged.records) {
+            if (row.source === 'community') await vault.upsert(row);
+          }
+          pulled = merged;
+          await refresh();
+        }
+      } catch (_) { /* Offline community sync must never block redemption. */ }
+    }
+    if (cfg.push && opts.sync.communityPush) {
+      try { pushed = await opts.sync.communityPush(await vault.all()); } catch (_) { /* keep local result */ }
+    }
+    return { pulled, pushed };
+  }
 
   /* ── dashboard ─────────────────────────────────────────────────────────── */
   function renderDashboard() {
@@ -572,20 +600,27 @@ function createPanel(options) {
           });
         } catch (_) {}
       }
-      /* The options page promises a sync after every run. Run it only after the
-       * final attempt has been recorded; otherwise the final status can miss the
-       * snapshot. A failed sync is non-destructive: the local vault remains the
-       * source of truth and the status is kept for the options page to show. */
+      /* Keep the credential-backed personal cloud sync opt-in separate from the
+       * public, credential-free community vault. It snapshots only after every
+       * attempt is stored. */
       if (opts.sync && opts.sync.syncNow && vault && vault.all) {
         try {
           const settings = opts.sync.getSettings ? await opts.sync.getSettings() : null;
           if (!settings || (settings.enabled !== false && settings.autoSync !== false)) {
             const reply = await opts.sync.syncNow(await vault.all());
             const syncStatus = reply && reply.status ? reply.status : reply;
-            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
           }
         } catch (error) {
-          toast('Đồng bộ lỗi: ' + (error && error.message || error), 'err');
+          toast('Đồng bộ cá nhân lỗi: ' + (error && error.message || error), 'err');
+        }
+      }
+      /* Public community synchronization is credential-free and deliberately
+       * separate: only globally meaningful verdicts are reported. */
+      if (opts.sync && vault && vault.all) {
+        const community = await syncCommunityVault({ pull: true, push: true });
+        if (community.pushed && !community.pushed.ok && !community.pushed.skipped) {
+          toast('Đồng bộ cộng đồng lỗi: ' + (community.pushed.error || 'không rõ'), 'err');
         }
       }
       const start = $('[data-act="start"]');
@@ -946,14 +981,9 @@ function createPanel(options) {
       const note = $('.community-status');
       if (note) note.textContent = 'Đang tải…';
       try {
-        const reply = await opts.sync.communityPull();
-        if (!reply || !reply.ok) throw new Error((reply && reply.error) || 'không tải được');
-        if (!S || !S.mergeCommunityCodes) throw new Error('thiếu module sync');
-        const merged = S.mergeCommunityCodes(cache.codes, reply.codes || []);
-        for (const row of merged.records) {
-          if (row.source === 'community') await vault.upsert(row);
-        }
-        await refresh();
+        const synced = await syncCommunityVault({ pull: true, push: false });
+        const merged = synced.pulled;
+        if (!merged) throw new Error('không tải được');
         go('share');
         const msg = `Thêm ${merged.added} mã mới, cập nhật ${merged.updated} mã.`;
         toast(msg, 'ok');
@@ -974,9 +1004,10 @@ function createPanel(options) {
       try {
         const reply = await opts.sync.communityPush(cache.codes);
         if (!reply || !reply.ok) throw new Error((reply && reply.error) || (reply && reply.skipped) || 'không gửi được');
+        const needed = Math.max(1, Number(reply.needed || 2));
         const msg = reply.sent
-          ? `Đã gửi ${reply.sent} kết quả. Mã mới cần 2 người xác nhận mới vào kho chung.`
-          : 'Không có kết quả nào cần gửi — kho của bạn đã khớp với cộng đồng.';
+          ? `Đã gửi ${reply.sent} kết quả. Mã mới cần ${needed} người dùng độc lập xác nhận mới vào kho chung.`
+          : 'Không có kết quả dùng chung để gửi — dữ liệu account chỉ giữ trên máy này.';
         toast(msg, 'ok');
         const after = $('.community-status');
         if (after) after.textContent = msg;
@@ -1054,6 +1085,7 @@ function createPanel(options) {
         vault._ready = true;
       } catch (e) { toast('Không mở được kho dữ liệu: ' + e.message, 'err'); }
     }
+    await syncCommunityVault({ pull: true, push: false });
     await go(view);
   }
   function closePanel() { shell.hidden = true; launcher.hidden = false; }

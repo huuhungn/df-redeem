@@ -242,7 +242,9 @@ test('status, kind, family, search and stats queries work', async () => {
     await vault.init();
     await vault.importJSON([{ code: 'DFRUNTEST1' }]);
 
-    /* SUCCESS → success, and the code stays a string. */
+    /* SUCCESS proves this account received the reward. USED (400069) is equally
+     * account-local: a repeat attempt must retain it as `mine`, never publish it
+     * as a global exhausted code. */
     const verdict = { code: 'DFRUNTEST1', status: 'SUCCESS', label: 'Thành công', detail: 'Đổi code thành công.', errorCode: 0 };
     const mapped = Garena.vaultStatus(verdict.status);
     assert.strictEqual(mapped, 'success', 'SUCCESS must map onto the success status');
@@ -254,6 +256,13 @@ test('status, kind, family, search and stats queries work', async () => {
     assert.strictEqual(row.status, 'success', 'the run verdict must reach the stored record');
     assert.strictEqual(typeof row.code, 'string', 'code must never be stored as an object');
     assert.strictEqual(row.attempt_count, 1);
+
+    assert.strictEqual(Garena.vaultStatus('USED'), 'mine', '400069 must stay account-local as mine');
+    await vault.recordAttempt('DFUSEDLOCAL1', {
+      status: Garena.vaultStatus('USED'), err_code: 400069, result_msg: 'Code đã được sử dụng.',
+    }, 'run-1');
+    const used = (await vault.all()).find((r) => r.code === 'DFUSEDLOCAL1');
+    assert.strictEqual(used.status, 'mine', 'a repeat redemption must not become globally exhausted');
 
     const history = await vault.history();
     assert.ok(history.length >= 1, 'the attempt must land in history');

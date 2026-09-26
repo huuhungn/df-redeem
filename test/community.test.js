@@ -99,6 +99,7 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       { code: 'good1code', status: 'success', err_code: 0 },
       { code: 'dead1code', status: 'expired', err_code: 400054 },
       { code: 'mine1code', status: 'mine', err_code: 400067 },
+      { code: 'used1code', status: 'mine', err_code: 400069 },
       { code: 'untried01', status: 'untried', err_code: 0 },
     ]);
 
@@ -111,8 +112,10 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     const posted = (requests[0] && requests[0].body.rows) || [];
     check('reportOutcomes sends shareable verdicts', result.sent === 2, JSON.stringify(result));
     check('an account-specific verdict is never reported', !posted.some((p) => p.code === 'MINE1CODE'), JSON.stringify(posted));
+    check('a locally used code is never reported', !posted.some((p) => p.code === 'USED1CODE'), JSON.stringify(posted));
     check('an untried code is never reported', !posted.some((p) => p.code === 'UNTRIED01'), JSON.stringify(posted));
     check('the per-account error code never leaves the machine', !posted.some((p) => p.err_code === 400067), JSON.stringify(posted));
+    check('a repeat-redemption 400069 never leaves the machine', !posted.some((p) => p.err_code === 400069), JSON.stringify(posted));
     check('reports carry only code and err_code',
       posted.every((p) => Object.keys(p).sort().join(',') === 'code,err_code'), JSON.stringify(posted));
     check('reported codes are normalised to uppercase', posted.every((p) => p.code === p.code.toUpperCase()), JSON.stringify(posted));

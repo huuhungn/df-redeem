@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.0.0';
+const VERSION = '3.1.0';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -963,6 +963,7 @@ async function handleSync(op, payload) {
       ok: Boolean(result.ok),
       sent: Number(result.sent || 0),
       failed: Number(result.failed || 0),
+      needed: Number(result.needed || 0),
       skipped: result.skipped || null,
       error: result.error || (result.failures && result.failures[0]) || null,
     };

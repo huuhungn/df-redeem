@@ -154,7 +154,7 @@ function looksLikeRedeemBody(body) {
 const VAULT_STATUS = {
   SUCCESS: 'success',
   LIMIT_REACHED: 'mine',      /* the account already holds this reward group */
-  USED: 'exhausted',
+  USED: 'mine',               /* 400069 is this account's prior redemption, not global exhaustion */
   EXPIRED: 'expired',
   PRESENT_ERROR: 'gift_bug',
   INVALID: 'invalid',
