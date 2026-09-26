@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updated_at": "2026-09-26T16:27:00.576Z",
+  "updated_at": "2026-09-26T21:14:18.810Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
-    "success": 210,
-    "expired": 70,
-    "gift_bug": 10
+    "success": 218,
+    "expired": 83,
+    "gift_bug": 12
   },
   "codes": [
     {
@@ -14,6 +14,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "812RCB",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "85ewN4xYbJfncPKbADR",
@@ -56,6 +63,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "C7S2X9J5D4B1V3Q",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "daichienboba2719",
@@ -205,6 +219,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFASSAULT55",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFATLA73",
       "status": "success",
       "err_code": 0,
@@ -352,6 +373,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFCOHERENCE35",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFCONCORD82",
       "status": "success",
       "err_code": 0,
@@ -387,11 +415,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFELITE999",
+      "status": "gift_bug",
+      "err_code": 400073,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFEMBARK63",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFENERGY33",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFEnergy428",
@@ -905,6 +947,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFSL2823",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFSL3145",
       "status": "success",
       "err_code": 0,
@@ -931,6 +980,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFSL6257",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFSL7183",
@@ -961,6 +1017,13 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFSL9304",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFsolace241",
       "status": "success",
       "err_code": 0,
@@ -975,11 +1038,25 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFSTEALTH44",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFsymphony104",
       "status": "success",
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFTARGET777",
+      "status": "gift_bug",
+      "err_code": 400073,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFTRNG469",
@@ -1057,6 +1134,27 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFUTARMAMENT",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFUTGEARTICKET",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFUTINTERMEDIATE",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFUTS26GR0103C35",
@@ -1325,6 +1423,20 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFUTSCARH",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "DFUTSUPPYPACK",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
       "code": "DFUTW260412S36",
       "status": "success",
       "err_code": 0,
@@ -1344,6 +1456,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFUTWEAPON",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "DFUTWQ200838",
@@ -1575,6 +1694,48 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "GARENADFCBT2503C3F4",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFCBT2503X9D1",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFID2501L983",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFID2501R572",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFID2501V621",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFNY2501H258",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-09-26"
     },
     {
       "code": "GGWPSIXMAJOR66",
