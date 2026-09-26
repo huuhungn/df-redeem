@@ -116,8 +116,49 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('reports carry only code and err_code',
       posted.every((p) => Object.keys(p).sort().join(',') === 'code,err_code'), JSON.stringify(posted));
     check('reported codes are normalised to uppercase', posted.every((p) => p.code === p.code.toUpperCase()), JSON.stringify(posted));
-    check('the batch body carries nothing but rows',
-      Object.keys(requests[0].body).join(',') === 'rows', JSON.stringify(Object.keys(requests[0].body)));
+    /* The body gained install_id, so the old "rows only" assertion no longer
+     * holds — but the privacy property it protected still must. Pin the exact
+     * key set so a future field cannot slip in unnoticed, and assert the id is a
+     * random v4 UUID rather than anything derived from the machine or the user. */
+    check('the batch body carries only rows and a random install id',
+      Object.keys(requests[0].body).sort().join(',') === 'install_id,rows',
+      JSON.stringify(Object.keys(requests[0].body)));
+    check('the install id is a random v4 UUID, not derived from the machine',
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        .test(String(requests[0].body.install_id)),
+      String(requests[0].body.install_id));
+  }
+
+  {
+    /* The install id must be stable across pushes, or every push would look like
+     * a new reporter and a single machine could confirm its own codes. */
+    const requests = [];
+    const chromeApi = fakeChrome({ communityReportUrl: 'https://broker.test/submit' });
+    const service = DFRedeemSync.createSyncService({
+      chromeApi,
+      fetchFn: async (url, init) => {
+        requests.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ ok: true, accepted: 1, results: [] }) };
+      },
+    });
+    await service.reportOutcomes([{ code: 'good1code', status: 'success', err_code: 0 }]);
+    await service.reportOutcomes([{ code: 'good2code', status: 'expired', err_code: 400068 }]);
+    check('the install id is reused across pushes',
+      requests.length === 2 && requests[0].install_id && requests[0].install_id === requests[1].install_id,
+      JSON.stringify(requests.map((r) => r.install_id)));
+
+    /* A second, independent install must not reuse the first one's id. */
+    const other = DFRedeemSync.createSyncService({
+      chromeApi: fakeChrome({ communityReportUrl: 'https://broker.test/submit' }),
+      fetchFn: async (url, init) => {
+        requests.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ ok: true, accepted: 1, results: [] }) };
+      },
+    });
+    await other.reportOutcomes([{ code: 'good3code', status: 'success', err_code: 0 }]);
+    check('a separate install mints its own id',
+      requests[2] && requests[2].install_id !== requests[0].install_id,
+      JSON.stringify([requests[0].install_id, requests[2].install_id]));
   }
 
   {

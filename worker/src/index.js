@@ -28,9 +28,18 @@ import { VERDICT_BY_ERR, PER_ACCOUNT, TRANSIENT } from './verdicts.js';
  * exist in the seed, so it stays readable — it simply cannot be newly submitted. */
 const PUBLISHABLE = new Set(['success', 'expired', 'invalid', 'exhausted', 'gift_bug']);
 
-/* A code is promoted once this many *independent* clients agree on a verdict.
- * One hostile client cannot inject anything; it can only report about itself. */
-const CONFIRMATIONS_REQUIRED = 2;
+/* A code is promoted once this many *independent* installs agree on a verdict.
+ *
+ * This vault is personal: the operator's own install is the only reporter, so a
+ * threshold of 2 could never be met and every row stayed queued forever. It is a
+ * wrangler var rather than a literal so a shared deployment can raise it without
+ * a code change — and it should be raised rather than left at 1 if the vault is
+ * ever shared, because one install can only vouch for what it actually redeemed. */
+const DEFAULT_CONFIRMATIONS = 1;
+function confirmationsRequired(env) {
+  const configured = Number(env && env.CONFIRMATIONS_REQUIRED);
+  return Number.isFinite(configured) && configured >= 1 ? configured : DEFAULT_CONFIRMATIONS;
+}
 
 const MAX_SUBMITS_PER_WINDOW = 120;
 /* A full vault is a few hundred rows; anything beyond this is not a real client. */
@@ -63,19 +72,48 @@ const json = (body, init, extra) =>
     headers: { ...JSON_HEADERS, ...(extra || {}) },
   });
 
-/* Salted hash of the caller IP. Used only to count independent reporters and to
- * rate-limit; it is never stored alongside the code in the repo and cannot be
+/* Salted hash of the caller IP. Used ONLY to rate-limit — never to count
+ * reporters. It is never stored alongside the code in the repo and cannot be
  * reversed to an address without the secret salt. */
-async function clientFingerprint(request, env) {
+async function rateLimitKey(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || '0.0.0.0';
   const salt = env.IP_SALT || 'df-redeem-unsalted';
-  const data = new TextEncoder().encode(`${salt}:${ip}`);
+  return sha256Short(`${salt}:${ip}`);
+}
+
+/* Identity of the *install* that reported a verdict.
+ *
+ * This used to be the IP hash, which conflated two different things: everyone
+ * behind one router counted as a single reporter, so two genuine machines in the
+ * same house could never confirm each other, while one machine on a changing
+ * mobile IP could confirm itself repeatedly. The client now sends a random UUID
+ * minted once per extension install and kept in local storage.
+ *
+ * This is self-asserted and trivially forgeable by design: it is a de-duplication
+ * key, not an authentication token, and it must never be treated as proof of a
+ * distinct person. Rate limiting stays on the IP hash, which a client cannot pick.
+ * Unknown/malformed ids fall back to the IP hash so an old client still counts as
+ * exactly one reporter rather than becoming anonymous. */
+const INSTALL_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+async function reporterIdentity(request, env, claimedInstallId) {
+  const claimed = String(claimedInstallId || '').trim();
+  if (INSTALL_ID_RE.test(claimed)) {
+    const salt = env.IP_SALT || 'df-redeem-unsalted';
+    /* Hashed so the stored row never carries a raw client-chosen string, and
+     * prefixed so an install id can never collide with a legacy IP-hash entry. */
+    return `i${await sha256Short(`${salt}:install:${claimed.toLowerCase()}`)}`;
+  }
+  return `p${await rateLimitKey(request, env)}`;
+}
+
+async function sha256Short(input) {
+  const data = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return [...new Uint8Array(digest)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function rateLimited(env, fingerprint) {
-  const key = `rate:${fingerprint}`;
+async function rateLimited(env, limitKey) {
+  const key = `rate:${limitKey}`;
   const current = Number((await env.VAULT.get(key)) || 0);
   if (current >= MAX_SUBMITS_PER_WINDOW) return true;
   await env.VAULT.put(key, String(current + 1), { expirationTtl: RATE_WINDOW_SECONDS });
@@ -85,7 +123,7 @@ async function rateLimited(env, fingerprint) {
 /* Classify and record one verdict. Shared by /submit and /submit-batch so both
  * paths cannot drift; rate limiting is the caller's job because a batch must
  * cost one slot, not one per row. */
-async function recordVerdict(env, rawCode, rawErr, fingerprint) {
+async function recordVerdict(env, rawCode, rawErr, reporter) {
   const code = String(rawCode || '').trim().toUpperCase();
   if (!CODE_RE.test(code)) return { ok: false, error: 'code must be 6-32 chars A-Z0-9', status: 400 };
 
@@ -120,18 +158,32 @@ async function recordVerdict(env, rawCode, rawErr, fingerprint) {
     existing.verdict = verdict;
     existing.reporters = [];
   }
-  const isNewReporter = !existing.reporters.includes(fingerprint);
-  if (isNewReporter) existing.reporters.push(fingerprint);
+  const isNewReporter = !existing.reporters.includes(reporter);
+  if (isNewReporter) existing.reporters.push(reporter);
+
+  const needed = confirmationsRequired(env);
+  const confirmations = existing.reporters.length;
+  const shouldPromote = confirmations >= needed;
 
   /* Re-reporting a verdict already on file changes nothing, and clients push their
    * whole vault every time. Writing anyway burned ~290 KV writes per push and hit
    * the daily put() quota after three pushes, which then failed every submission
-   * with a 500. Only write when the row actually moved. */
-  const changed = flipped || isNewReporter || !existing.updated_at;
+   * with a 500. Only write when the row actually moved.
+   *
+   * `promoted !== shouldPromote` is part of "moved" on purpose: lowering the
+   * confirmation threshold leaves already-queued rows at their old verdict and
+   * reporter set, so without this they would stay unpromoted forever and the
+   * threshold change would silently do nothing to the existing queue. */
+  const changed = flipped
+    || isNewReporter
+    || !existing.updated_at
+    || existing.promoted !== shouldPromote
+    || existing.confirmations !== confirmations;
+
   if (changed) {
     existing.updated_at = new Date().toISOString();
-    existing.confirmations = existing.reporters.length;
-    existing.promoted = existing.confirmations >= CONFIRMATIONS_REQUIRED;
+    existing.confirmations = confirmations;
+    existing.promoted = shouldPromote;
     await env.VAULT.put(key, JSON.stringify(existing), { expirationTtl: PENDING_TTL_SECONDS });
   }
 
@@ -141,7 +193,7 @@ async function recordVerdict(env, rawCode, rawErr, fingerprint) {
     code,
     verdict,
     confirmations: existing.confirmations,
-    needed: CONFIRMATIONS_REQUIRED,
+    needed,
     promoted: existing.promoted,
     /* Lets a client tell "already on file" apart from "your report counted". */
     unchanged: !changed,
@@ -156,12 +208,15 @@ async function handleSubmit(request, env) {
     return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
   }
 
-  const fingerprint = await clientFingerprint(request, env);
-  if (await rateLimited(env, fingerprint)) {
+  /* Two distinct identities: the IP hash gates the rate limit (a client cannot
+   * choose it), the install id de-duplicates reporters (a client asserts it). */
+  const limitKey = await rateLimitKey(request, env);
+  if (await rateLimited(env, limitKey)) {
     return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
   }
+  const reporter = await reporterIdentity(request, env, payload && payload.install_id);
 
-  const result = await recordVerdict(env, payload && payload.code, payload && payload.err_code, fingerprint);
+  const result = await recordVerdict(env, payload && payload.code, payload && payload.err_code, reporter);
   if (!result.ok) {
     const { status, ...body } = result;
     return json(body, { status: status || 400 });
@@ -187,10 +242,11 @@ async function handleSubmitBatch(request, env) {
     return json({ ok: false, error: `at most ${MAX_BATCH_ROWS} rows per batch` }, { status: 413 });
   }
 
-  const fingerprint = await clientFingerprint(request, env);
-  if (await rateLimited(env, fingerprint)) {
+  const limitKey = await rateLimitKey(request, env);
+  if (await rateLimited(env, limitKey)) {
     return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
   }
+  const reporter = await reporterIdentity(request, env, payload && payload.install_id);
 
   /* Each row read-modify-writes its own KV key, so rows for *different* codes are
    * independent and can run concurrently; a full vault took ~175s strictly
@@ -210,7 +266,7 @@ async function handleSubmitBatch(request, env) {
   for (let i = 0; i < pending.length; i += WAVE) {
     await Promise.all(pending.slice(i, i + WAVE).map(async (group) => {
       for (const { row, index } of group) {
-        results[index] = await recordVerdict(env, row && row.code, row && row.err_code, fingerprint);
+        results[index] = await recordVerdict(env, row && row.code, row && row.err_code, reporter);
       }
     }));
   }
@@ -227,7 +283,7 @@ async function handleSubmitBatch(request, env) {
     accepted: rows.length - rejected,
     queued,
     rejected,
-    needed: CONFIRMATIONS_REQUIRED,
+    needed: confirmationsRequired(env),
     results,
   });
 }
@@ -291,7 +347,7 @@ async function handleHealth(env) {
     ok: true,
     service: 'df-redeem-vault',
     pending: listed.keys.length,
-    confirmations_required: CONFIRMATIONS_REQUIRED,
+    confirmations_required: confirmationsRequired(env),
   });
 }
 

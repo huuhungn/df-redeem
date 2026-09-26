@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const zlib = require('zlib');
 
 const ROOT = path.join(__dirname, '..');
 const EXT = path.join(ROOT, 'extension');
@@ -101,31 +102,93 @@ check('each icon PNG is square and matches its declared size',
   wrongSize.length === 0, wrongSize.join('; '));
 
 /* The 16px mark is hand-plotted for symmetry; assert it really is mirrored so a
- * future edit to make-icons.py cannot quietly ship a lopsided toolbar icon. */
+ * future edit to make-icons.py cannot quietly ship a lopsided toolbar icon.
+ *
+ * This used to shell out to `python -c` with Pillow and skip when the import
+ * failed. On this machine a bare `python` is a build without Pillow, so the check
+ * silently skipped and stopped protecting anything. Decode the PNG here instead:
+ * zlib is in Node's stdlib, so there is no interpreter to pick and nothing to
+ * skip. Only 8-bit RGBA, non-interlaced PNGs are produced by make-icons.py. */
 const icon16 = path.join(EXT, 'icons', 'icon16.png');
-let symmetric = null;
-try {
-  const out = execFileSync('python', ['-c', `
-import sys
-from PIL import Image
-im = Image.open(r'${icon16}').convert('RGBA')
-w, h = im.size
-px = im.load()
-bad = 0
-for y in range(h):
-    for x in range(w // 2):
-        if px[x, y] != px[w - 1 - x, y]:
-            bad += 1
-print(bad)
-`], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  symmetric = Number(String(out).trim());
-} catch {
-  symmetric = -1; /* Pillow unavailable: skip rather than fail the suite. */
+function decodePng(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  const idat = [];
+  let offset = 8;
+  while (offset < buf.length) {
+    const length = buf.readUInt32BE(offset);
+    const type = buf.toString('ascii', offset + 4, offset + 8);
+    const data = buf.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      interlace = data[12];
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+    offset += 12 + length;
+  }
+  if (bitDepth !== 8 || colorType !== 6 || interlace !== 0) {
+    throw new Error(`unsupported PNG (depth ${bitDepth}, color ${colorType}, interlace ${interlace})`);
+  }
+
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const channels = 4;
+  const stride = width * channels;
+  const pixels = Buffer.alloc(height * stride);
+  /* Undo the per-scanline filters; each needs the reconstructed row above it. */
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[y * (stride + 1)];
+    const rowIn = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride);
+    const rowOut = pixels.subarray(y * stride, y * stride + stride);
+    const prev = y > 0 ? pixels.subarray((y - 1) * stride, (y - 1) * stride + stride) : null;
+    for (let x = 0; x < stride; x += 1) {
+      const a = x >= channels ? rowOut[x - channels] : 0;
+      const b = prev ? prev[x] : 0;
+      const c = prev && x >= channels ? prev[x - channels] : 0;
+      let value = rowIn[x];
+      if (filter === 1) value += a;
+      else if (filter === 2) value += b;
+      else if (filter === 3) value += Math.floor((a + b) / 2);
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        value += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+      } else if (filter !== 0) {
+        throw new Error('unknown PNG filter ' + filter);
+      }
+      rowOut[x] = value & 0xff;
+    }
+  }
+  return { width, height, channels, pixels };
 }
-if (symmetric >= 0) {
-  check('the 16px icon is left-right symmetric', symmetric === 0, symmetric + ' mismatched pixels');
-} else {
-  console.log('skip the 16px symmetry check (Pillow not installed)');
+
+try {
+  const { width, height, channels, pixels } = decodePng(icon16);
+  let mismatched = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < Math.floor(width / 2); x += 1) {
+      const left = (y * width + x) * channels;
+      const right = (y * width + (width - 1 - x)) * channels;
+      for (let c = 0; c < channels; c += 1) {
+        if (pixels[left + c] !== pixels[right + c]) { mismatched += 1; break; }
+      }
+    }
+  }
+  check('the 16px icon is left-right symmetric', mismatched === 0, mismatched + ' mismatched pixels');
+} catch (error) {
+  check('the 16px icon could be decoded for the symmetry check', false, error.message);
 }
 
 /* Declaring the default policy documents that no remote script is needed. */

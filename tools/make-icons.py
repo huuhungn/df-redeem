@@ -8,11 +8,31 @@ edges clean at every size.
 Mark: a delta (triangle) cut out of a rounded-square plate, with a notch that
 reads as a code slot. Palette is taken from src/ui/theme.css so the toolbar icon
 matches the drawer.
+
+Requires Pillow. On this machine a bare `python` resolves to the Hermes-bundled
+3.14 interpreter, which does NOT have Pillow, so `python tools/make-icons.py`
+fails with ModuleNotFoundError even though Pillow is installed. Pillow lives in
+Python312:
+
+    "C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" \\
+        tools/make-icons.py extension/icons
+
+The guard below turns that into a readable message instead of a bare traceback.
 """
 import math
 import os
 import sys
-from PIL import Image, ImageDraw
+
+try:
+    from PIL import Image, ImageDraw
+except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
+    sys.exit(
+        f'{exc.name} is missing from {sys.executable}.\n'
+        'Pillow is required. On this machine a bare `python` is the Hermes 3.14 build '
+        'without Pillow; use the Python312 interpreter instead:\n'
+        '  "C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" '
+        'tools/make-icons.py extension/icons'
+    )
 
 PANEL = (11, 19, 23, 255)      # --panel  #0b1317
 VOID = (5, 8, 10, 255)         # --void   #05080a

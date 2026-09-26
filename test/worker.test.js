@@ -56,10 +56,20 @@ async function waitForReady(timeoutMs) {
   return false;
 }
 
-/* Two different callers are needed to prove the confirmation rule. wrangler dev
- * honours CF-Connecting-IP from the request, so distinct values give distinct
- * fingerprints without needing two machines. */
+/* Two identities travel now, and they are deliberately different things:
+ *   CF-Connecting-IP  -> rate-limit bucket (server-observed, client cannot pick)
+ *   install_id (body)  -> reporter identity (client-asserted, de-duplication only)
+ * wrangler dev honours CF-Connecting-IP, so distinct values give distinct rate
+ * buckets without needing two machines. */
 const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
+/* A well-formed v4-shaped install id; the broker rejects malformed ones. */
+const asInstall = (n) => `11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+
+/* The consensus assertions below describe the *shared* configuration, so this
+ * dev server is pinned to 2 regardless of what wrangler.jsonc ships. The
+ * personal-vault default of 1 is asserted separately at the end of this file so
+ * both modes stay covered and neither can silently regress. */
+const TEST_CONFIRMATIONS = 2;
 
 (async function main() {
   /* Own throwaway KV state per run: the default persists under worker/.wrangler
@@ -69,7 +79,8 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
     ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', STATE_DIR,
-      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:test-salt'],
+      '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:test-salt',
+      '--var', `CONFIRMATIONS_REQUIRED:${TEST_CONFIRMATIONS}`],
     { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
   );
   let log = '';
@@ -95,7 +106,8 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
     const health = await get('/health');
     check('health reports the service', health.status === 200 && health.json && health.json.ok === true,
       JSON.stringify(health.json));
-    check('health states the confirmation rule', health.json && health.json.confirmations_required === 2,
+    check('health states the confirmation rule',
+      health.json && health.json.confirmations_required === TEST_CONFIRMATIONS,
       JSON.stringify(health.json));
 
     /* ---- validation ------------------------------------------------------ */
@@ -146,25 +158,34 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
 
     /* ---- confirmation rule ---------------------------------------------- */
     const uniq = 'DF' + Date.now().toString(36).toUpperCase().slice(-8);
-    const first = await post('/submit', { code: uniq, err_code: 0 }, asClient('10.0.0.11'));
+    const first = await post('/submit', { code: uniq, err_code: 0, install_id: asInstall(1) }, asClient('10.0.0.11'));
     check('first report queues but does not promote',
       first.json && first.json.confirmations === 1 && first.json.promoted === false,
       JSON.stringify(first.json));
 
-    const repeat = await post('/submit', { code: uniq, err_code: 0 }, asClient('10.0.0.11'));
-    check('same reporter cannot self-confirm',
+    const repeat = await post('/submit', { code: uniq, err_code: 0, install_id: asInstall(1) }, asClient('10.0.0.11'));
+    check('same install cannot self-confirm',
       repeat.json && repeat.json.confirmations === 1 && repeat.json.promoted === false,
       JSON.stringify(repeat.json));
 
-    const second = await post('/submit', { code: uniq, err_code: 0 }, asClient('10.0.0.12'));
-    check('a second independent reporter promotes the code',
+    /* Same install id from a different IP is still ONE reporter: a laptop moving
+     * between wifi and tethering must not be able to confirm its own reports. */
+    const roamed = await post('/submit', { code: uniq, err_code: 0, install_id: asInstall(1) }, asClient('203.0.113.9'));
+    check('the same install on a new IP still cannot self-confirm',
+      roamed.json && roamed.json.confirmations === 1 && roamed.json.promoted === false,
+      JSON.stringify(roamed.json));
+
+    /* Two installs behind ONE IP now count as two reporters; under the old
+     * IP-hash identity this case was impossible to express. */
+    const second = await post('/submit', { code: uniq, err_code: 0, install_id: asInstall(2) }, asClient('10.0.0.11'));
+    check('a second install behind the same IP promotes the code',
       second.json && second.json.confirmations === 2 && second.json.promoted === true,
       JSON.stringify(second.json));
 
     /* ---- verdict disagreement restarts the count ------------------------ */
     /* 400073 is gift_bug per garena.js, so this is a genuine flip away from the
      * earlier verdict and must reset the tally rather than add to it. */
-    const flip = await post('/submit', { code: uniq, err_code: 400073 }, asClient('10.0.0.13'));
+    const flip = await post('/submit', { code: uniq, err_code: 400073, install_id: asInstall(3) }, asClient('10.0.0.13'));
     check('a changed verdict restarts confirmations',
       flip.json && flip.json.verdict === 'gift_bug' && flip.json.confirmations === 1 && flip.json.promoted === false,
       JSON.stringify(flip.json));
@@ -177,8 +198,8 @@ const asClient = (ip) => ({ 'CF-Connecting-IP': ip });
     check('pending rejects a wrong token', wrongAuth.status === 401);
 
     const promotedCode = 'DFPROMO' + Date.now().toString(36).toUpperCase().slice(-5);
-    await post('/submit', { code: promotedCode, err_code: 0 }, asClient('10.0.0.21'));
-    await post('/submit', { code: promotedCode, err_code: 0 }, asClient('10.0.0.22'));
+    await post('/submit', { code: promotedCode, err_code: 0, install_id: asInstall(21) }, asClient('10.0.0.21'));
+    await post('/submit', { code: promotedCode, err_code: 0, install_id: asInstall(22) }, asClient('10.0.0.22'));
 
     const pending = await get('/pending', { Authorization: `Bearer ${ADMIN}` });
     check('pending lists promoted rows', pending.status === 200 && Array.isArray(pending.json.rows) && pending.json.rows.some((r) => r.code === promotedCode),

@@ -3,6 +3,13 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
+  "vars": {
+    // Independent installs that must agree before a code is published.
+    // 1 because this vault is personal — the operator's own install is the only
+    // reporter, so a higher value leaves every row queued forever. Raise this for
+    // a shared deployment; it needs no code change.
+    "CONFIRMATIONS_REQUIRED": "1"
+  },
   "kv_namespaces": [
     {
       // Created with `wrangler kv namespace create VAULT`.

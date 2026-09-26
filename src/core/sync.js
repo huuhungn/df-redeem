@@ -8,6 +8,11 @@ const DFRedeemSync = (function attachSync(root) {
   const RECORDS_KEY = 'dfRedeemRecords';
   const STATUS_KEY = 'dfRedeemSyncStatus';
   const SYNC_DELTA_KEY = 'dfRedeemSyncDelta';
+  /* Random per-install id so the broker can count independent reporters without
+   * using the IP address (everyone behind one router looked like one reporter,
+   * and one phone on a rotating mobile IP looked like many). Minted once and kept
+   * in local storage, which survives browser restarts but not a reinstall. */
+  const INSTALL_ID_KEY = 'dfRedeemInstallId';
   const DEFAULT_SETTINGS = Object.freeze({
     syncBackend: 'none',
     syncEndpoint: '',
@@ -44,6 +49,24 @@ const DFRedeemSync = (function attachSync(root) {
   }
   function storageSet(storage, value) {
     return asPromise(() => storage.set(value));
+  }
+
+  /* crypto.randomUUID needs a secure context; the extension pages are one, but a
+   * content script injected into an http page is not, so fall back rather than
+   * throw and lose the report. */
+  function mintInstallId(cryptoApi) {
+    const api = cryptoApi || (typeof crypto !== 'undefined' ? crypto : null);
+    if (api && typeof api.randomUUID === 'function') return api.randomUUID();
+    if (api && typeof api.getRandomValues === 'function') {
+      const bytes = api.getRandomValues(new Uint8Array(16));
+      /* RFC 4122 version/variant bits, so the id matches the shape the broker
+       * validates instead of being rejected as malformed. */
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    return '';
   }
 
   function timestampOf(record) {
@@ -200,6 +223,18 @@ const DFRedeemSync = (function attachSync(root) {
       return status;
     }
 
+    /* Read the install id, minting and persisting it on first use. Concurrent
+     * callers can race here, but the loser just overwrites with an equally valid
+     * id — at worst one push counts as a different install, which is harmless. */
+    async function installId() {
+      const stored = await getLocal({ [INSTALL_ID_KEY]: '' });
+      const existing = String(stored && stored[INSTALL_ID_KEY] || '').trim();
+      if (existing) return existing;
+      const minted = mintInstallId(options && options.cryptoApi);
+      if (minted) await setLocal({ [INSTALL_ID_KEY]: minted });
+      return minted;
+    }
+
     registerBackend('chrome-sync', {
       async pull() {
         if (!sync) throw new Error('chrome.storage.sync không khả dụng.');
@@ -351,9 +386,11 @@ const DFRedeemSync = (function attachSync(root) {
           method: 'POST',
           credentials: 'omit',
           headers: { 'Content-Type': 'application/json' },
-          /* Only the code and the raw Garena error number travel. No timestamps,
-           * no account, no local notes — the broker derives the verdict itself. */
+          /* Only the code, the raw Garena error number and a random install id
+           * travel. No timestamps, no account, no local notes — the broker derives
+           * the verdict itself, and the id is random per install, not an identity. */
           body: JSON.stringify({
+            install_id: await installId(),
             rows: shareable.map((row) => ({
               code: String(row.code).trim().toUpperCase(),
               err_code: Number(row.err_code || 0),
