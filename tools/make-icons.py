@@ -10,9 +10,10 @@ reads as a code slot. Palette is taken from src/ui/theme.css so the toolbar icon
 matches the drawer.
 
 Requires Pillow, and the interpreter matters: a bare `python` is often NOT the
-one that has it. Here `python` resolves to the Hermes-bundled 3.14 build, which
-has no Pillow, so `python tools/make-icons.py` dies with ModuleNotFoundError
-even though Pillow is installed on the machine. Pillow lives in Python312:
+one that has it. On the machine this was written on, `python` resolves to a
+Hermes-bundled 3.14 build with no Pillow, so `python tools/make-icons.py` dies
+with ModuleNotFoundError even though Pillow is installed elsewhere. Use the
+launcher instead:
 
     py -3.12 tools/make-icons.py extension/icons
 
@@ -31,12 +32,12 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - environment guard
     sys.exit(
         f'{exc.name} is missing from {sys.executable}.\n'
-        'Pillow is required. A bare `python` here is the Hermes 3.14 build without '
-        'Pillow; use an interpreter that has it:\n'
-        '  py -3.12 tools/make-icons.py extension/icons\n'
-        'or by full path:\n'
-        '  "C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe" '
-        'tools/make-icons.py extension/icons'
+        'Pillow is required, and the first `python` on PATH often is not the\n'
+        'interpreter that has it. Try, in order:\n'
+        '  py -3.12 tools/make-icons.py extension/icons   (Windows launcher)\n'
+        '  python3 tools/make-icons.py extension/icons    (macOS / Linux)\n'
+        'or install it into this one:\n'
+        f'  "{sys.executable}" -m pip install Pillow'
     )
 
 PANEL = (11, 19, 23, 255)      # --panel  #0b1317
