@@ -225,6 +225,26 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       result.error === 'HTTP 500' && result.retriable === false, JSON.stringify(result));
   }
 
+  {
+    const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });
+    const merged = service.mergeCommunityCodes(
+      [{ code: 'DFVNHackclaw1', kind: 'giftcode', status: 'mine', err_code: 400067 }],
+      [{ code: 'DFVNHACKCLAW1', status: 'success', err_code: 0 }],
+    );
+    check('community merge uses canonical identity without overwriting local original casing',
+      merged.records.length === 1 && merged.records[0].code === 'DFVNHackclaw1' && merged.records[0].status === 'mine', JSON.stringify(merged));
+  }
+
+  {
+    const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });
+    const merged = service.mergeCommunityCodes(
+      [],
+      [{ code: 'DFVNHackclaw1', status: 'success', err_code: 0 }],
+    );
+    check('community merge preserves mixed-case remote spelling for new code',
+      merged.records.length === 1 && merged.records[0].code === 'DFVNHackclaw1' && merged.records[0].status === 'untried', JSON.stringify(merged));
+  }
+
   /* ---- mergeCommunityCodes -------------------------------------------- */
   {
     const service = DFRedeemSync.createSyncService({ chromeApi: fakeChrome(), fetchFn: async () => jsonResponse({}) });

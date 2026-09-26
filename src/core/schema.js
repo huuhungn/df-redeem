@@ -25,7 +25,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
       .replace(/[\u00A0\s]+/g, '')
       .trim();
-    return kind === 'giftcode' ? clean.toUpperCase() : clean;
+    return clean;
   }
 
   function normalizeTags(value) {

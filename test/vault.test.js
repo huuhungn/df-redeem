@@ -40,7 +40,16 @@ test('block-aware paste parsing keeps preset blocks separate from gift blocks', 
       splitConcatenatedLine('MOILOOT45DFCRAFT427DFSIXVIP888ACESIXMAJOR', known),
       known,
     );
-    assert.deepStrictEqual(splitConcatenatedLine('UNKNOWNLONGVALUE', known), ['UNKNOWNLONGVALUE']);
+    const emptyKnown = new Set();
+    assert.deepStrictEqual(splitConcatenatedLine('LONGUNKNOWNVALUE1234', emptyKnown), ['LONGUNKNOWNVALUE1234']);
+  });
+
+  test('concatenated lines retain the first original casing for each split gift', () => {
+    const known = ['DFVNHackclaw1', 'DFVNVyron2'];
+    assert.deepStrictEqual(
+      splitConcatenatedLine('DFVNHACKCLAW1DFVNVYRON2', known),
+      ['DFVNHackclaw1', 'DFVNVyron2'],
+    );
   });
 
   test('deduplicates gifts case-insensitively and presets exactly', async () => {
@@ -59,15 +68,25 @@ test('block-aware paste parsing keeps preset blocks separate from gift blocks', 
     assert.strictEqual((await vault.byKind('preset')).length, 2);
   });
 
-  test('gift-code normalization uppercases manual input before it reaches Garena', async () => {
+  test('gift-code vault preserves the first submitted casing while deduplicating case-insensitively', async () => {
   const vault = new Vault({ adapter: new MemoryAdapter() });
   await vault.init();
-  const result = await vault.importPaste('DFVNHackclaw1');
+  const result = await vault.importPaste(['DFVNHackclaw1', 'DFVNHACKCLAW1'].join('\n'));
   assert.strictEqual(result.imported, 1);
   const rows = await vault.byKind('giftcode');
-  assert.strictEqual(rows[0].code, 'DFVNHACKCLAW1');
+  assert.strictEqual(rows[0].code, 'DFVNHackclaw1');
   await vault.recordAttempt('DFVNHackclaw1', { status: 'success', err_code: 0 }, 'manual-run');
   assert.strictEqual((await vault.search('DFVNHACKCLAW1'))[0].status, 'success');
+});
+
+test('recordAttempt restores mixed-case spelling after legacy uppercase invalid result', async () => {
+  const vault = new Vault({ adapter: new MemoryAdapter() });
+  await vault.init();
+  await vault.recordAttempt('DFVNHACKCLAW1', { status: 'invalid', err_code: 400054, msg: 'uppercase request' });
+  await vault.recordAttempt('DFVNHackclaw1', { status: 'mine', err_code: 400067, msg: 'manual exact-case success' });
+  const row = (await vault.all()).find((item) => item.code.toUpperCase() === 'DFVNHACKCLAW1');
+  assert.strictEqual(row.code, 'DFVNHackclaw1');
+  assert.strictEqual(row.status, 'mine');
 });
 
 test('status, kind, family, search and stats queries work', async () => {

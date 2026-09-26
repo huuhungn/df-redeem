@@ -294,7 +294,22 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       }
       const normalized = Schema.codeRecord({ ...raw, kind: 'giftcode' }, now);
       const existing = await this.adapter.get(STORES.codes, normalized.key);
-      const merged = Schema.codeRecord({ ...existing, ...raw, code: normalized.code, kind: 'giftcode' }, now);
+      const submittedCode = normalized.code;
+      const canRestoreOriginalCase = existing
+        && existing.code === String(existing.code || '').toUpperCase()
+        && submittedCode !== submittedCode.toUpperCase()
+        && existing.status === 'invalid'
+        && Number(existing.err_code) === 400054;
+      /* The IndexedDB key is always uppercase, but the value is the exact text
+       * sent to Garena. Legacy builds had already uppercased every value; when a
+       * mixed-case source later supplies a spelling for a 400054 record, restore
+       * it so the code can be retried rather than preserving the bad request. */
+      const merged = Schema.codeRecord({
+        ...existing,
+        ...raw,
+        code: canRestoreOriginalCase ? submittedCode : (existing && existing.code ? existing.code : submittedCode),
+        kind: 'giftcode',
+      }, now);
       merged.first_seen = existing && existing.first_seen ? existing.first_seen : normalized.first_seen;
       await this.adapter.put(STORES.codes, merged);
       return { record: merged, inserted: !existing };
@@ -399,10 +414,17 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       const code = Schema.normalizeCode(codeValue, kind);
       const key = kind === 'preset' ? `preset:${code}` : `gift:${code.toUpperCase()}`;
       const existing = await this.adapter.get(STORES.codes, key) || Schema.codeRecord({ code, kind }, this.clock());
+      const submittedCode = code;
       const timestamp = raw.timestamp || raw.at || this.clock();
+      const shouldRestoreOriginalCase = kind === 'giftcode'
+        && submittedCode !== submittedCode.toUpperCase()
+        && existing.status === 'invalid'
+        && Number(existing.err_code) === 400054;
+      const storedCode = shouldRestoreOriginalCase ? submittedCode : (existing.code || submittedCode);
       const status = STATUSES.includes(String(raw.status || '').toLowerCase()) ? String(raw.status).toLowerCase() : existing.status;
       const updated = Schema.codeRecord({
         ...existing,
+        code: storedCode,
         status,
         last_tried: timestamp,
         attempt_count: existing.attempt_count + 1,

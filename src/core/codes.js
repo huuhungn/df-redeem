@@ -25,14 +25,21 @@ function isCode(value) {
  * a greedy longest-first split is a known candidate, the line is a joined run.
  * Returns an array of pieces, or null when the line is a single code.
  */
-function splitJoinedRun(code, knownUpper) {
-  if (!knownUpper || knownUpper.size === 0) return null;
+function splitJoinedRun(code, knownCodes) {
+  if (!knownCodes || typeof knownCodes[Symbol.iterator] !== 'function') return null;
   const upper = code.toUpperCase();
-  // Joined runs are always long. The longest genuine code seen is 21 chars
-  // (weapon skins), so anything shorter than 16 is left alone, and a 21-char
-  // weapon code is never a candidate for splitting.
   if (upper.length < 16) return null;
   if (/^6[A-Z0-9]{20}$/.test(upper)) return null;
+
+  const sourceByUpper = new Map();
+  const sourceValues = knownCodes instanceof Map
+    ? knownCodes.values()
+    : (knownCodes instanceof Set ? knownCodes.values() : knownCodes);
+  for (const value of sourceValues) {
+    const normalized = normalizeCode(value);
+    if (isCode(normalized) && !sourceByUpper.has(normalized.toUpperCase())) sourceByUpper.set(normalized.toUpperCase(), normalized);
+  }
+  const vocabulary = sourceByUpper.size ? sourceByUpper : knownCodes;
 
   const memo = new Map();
   const walk = (start) => {
@@ -45,10 +52,10 @@ function splitJoinedRun(code, knownUpper) {
       // line); using it as a piece would defeat the split.
       if (start === 0 && end === upper.length) continue;
       const piece = upper.slice(start, end);
-      if (!knownUpper.has(piece)) continue;
+      if (!vocabulary.has(piece)) continue;
       const rest = walk(end);
       if (rest === null) continue;
-      best = [piece].concat(rest);
+      best = [sourceByUpper.get(piece) || piece].concat(rest);
       break;
     }
     memo.set(start, best);
@@ -92,12 +99,15 @@ function parseCodes(input, options) {
     }
   }
 
-  // Pass 1: build the vocabulary of codes that stand alone, used to un-join runs.
-  const knownUpper = new Set(candidates.filter(isCode).map((c) => c.toUpperCase()));
+  const knownCodes = new Map();
+  for (const candidate of candidates.filter(isCode)) {
+    const key = candidate.toUpperCase();
+    if (!knownCodes.has(key)) knownCodes.set(key, candidate);
+  }
   if (opts.vocabulary) {
     for (const extra of opts.vocabulary) {
-      const up = normalizeCode(extra).toUpperCase();
-      if (isCode(up)) knownUpper.add(up);
+      const normalized = normalizeCode(extra);
+      if (isCode(normalized) && !knownCodes.has(normalized.toUpperCase())) knownCodes.set(normalized.toUpperCase(), normalized);
     }
   }
 
@@ -122,7 +132,7 @@ function parseCodes(input, options) {
       invalid.push(candidate);
       continue;
     }
-    const parts = splitJoinedRun(candidate, knownUpper);
+    const parts = splitJoinedRun(candidate, knownCodes);
     if (parts) {
       unjoined += 1;
       for (const part of parts) push(part);

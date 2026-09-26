@@ -142,14 +142,19 @@ const DFRedeemSync = (function attachSync(root) {
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
+  function canonicalCode(value) {
+    return String(value == null ? '' : value).trim().toUpperCase();
+  }
+
   function compactDelta(records) {
     const output = {};
     for (const input of Array.isArray(records) ? records : []) {
       const code = String(input && input.code || '').trim();
-      if (!code) continue;
+      const key = canonicalCode(code);
+      if (!key) continue;
       const candidate = { code, status: String(input.status || 'UNKNOWN'), timestamp: timestampOf(input) };
-      const previous = output[code];
-      if (!previous || candidate.timestamp >= previous.timestamp) output[code] = candidate;
+      const previous = output[key];
+      if (!previous || candidate.timestamp >= previous.timestamp) output[key] = candidate;
     }
     return output;
   }
@@ -160,10 +165,11 @@ const DFRedeemSync = (function attachSync(root) {
       if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
       for (const [key, value] of Object.entries(source)) {
         const code = String(value && value.code || key).trim();
-        if (!code) continue;
+        const canonical = canonicalCode(code);
+        if (!canonical) continue;
         const candidate = { code, status: String(value.status || 'UNKNOWN'), timestamp: timestampOf(value) };
-        const previous = merged[code];
-        if (!previous || candidate.timestamp >= previous.timestamp) merged[code] = candidate;
+        const previous = merged[canonical];
+        if (!previous || candidate.timestamp >= previous.timestamp) merged[canonical] = candidate;
       }
     }
     return merged;
@@ -223,12 +229,19 @@ const DFRedeemSync = (function attachSync(root) {
    * remote row must never overwrite a verdict this machine observed first-hand,
    * because the local observation is the stronger evidence. */
   function mergeCommunityCodes(localRecords, communityCodes) {
-    const byCode = new Map((Array.isArray(localRecords) ? localRecords : []).map((row) => [String(row.code).toUpperCase(), row]));
+    const byCode = new Map();
+    for (const row of Array.isArray(localRecords) ? localRecords : []) {
+      const key = canonicalCode(row && row.code);
+      if (!key) continue;
+      const previous = byCode.get(key);
+      if (!previous || timestampOf(row) >= timestampOf(previous)) byCode.set(key, { ...row });
+    }
     let added = 0;
     let updated = 0;
 
     for (const remote of Array.isArray(communityCodes) ? communityCodes : []) {
-      const code = String(remote && remote.code || '').trim().toUpperCase();
+      const submittedCode = String(remote && remote.code || '').trim();
+      const code = canonicalCode(submittedCode);
       if (!code) continue;
       const status = String(remote && remote.status || '');
       if (!SHAREABLE_STATUS.has(status)) continue;
@@ -236,7 +249,7 @@ const DFRedeemSync = (function attachSync(root) {
       const local = byCode.get(code);
       if (!local) {
         byCode.set(code, {
-          code,
+          code: submittedCode,
           kind: 'giftcode',
           /* Someone else's success is still untried *here*, so the user can
            * redeem it themselves. Dead verdicts carry over as-is to save a

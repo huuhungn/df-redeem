@@ -434,8 +434,13 @@ function createPanel(options) {
 
   function parseQueue(text) {
     const C = root.DFRedeemCodes;
-    if (C && C.parseList) return C.parseList(text).map((x) => (typeof x === 'string' ? x : x.code));
-    return String(text || '').split(/[^A-Za-z0-9]+/).map((s) => s.trim().toUpperCase()).filter((s) => s.length >= 6);
+    if (C && C.parseCodes) return C.parseCodes(text).codes.map((row) => row.code);
+    /* Keep the submitted spelling: some legacy Garena codes are case-sensitive.
+     * Deduplication happens in the parser with an uppercase canonical key. */
+    const seen = new Set();
+    return String(text || '').split(/[^A-Za-z0-9]+/)
+      .map((value) => value.trim())
+      .filter((value) => value.length >= 6 && !seen.has(value.toUpperCase()) && (seen.add(value.toUpperCase()), true));
   }
 
   async function startRun() {

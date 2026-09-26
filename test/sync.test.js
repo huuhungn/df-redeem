@@ -52,6 +52,17 @@ function makeChrome(opts = {}) {
 }
 
 /* --- delta compaction --------------------------------------------------- */
+test('compactDelta preserves original spelling but deduplicates status by canonical code', () => {
+  const svc = Sync.createSyncService({});
+  const delta = svc.compactDelta([
+    { code: 'DFVNHackclaw1', status: 'untried', timestamp: 10 },
+    { code: 'DFVNHACKCLAW1', status: 'success', timestamp: 20 },
+  ]);
+  assert.deepStrictEqual(delta, {
+    DFVNHACKCLAW1: { code: 'DFVNHACKCLAW1', status: 'success', timestamp: 20 },
+  });
+});
+
 test('compactDelta keeps only code/status/timestamp and drops everything else', () => {
   const svc = Sync.createSyncService({ chromeApi: makeChrome() });
   const delta = svc.compactDelta([
