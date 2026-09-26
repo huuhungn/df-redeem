@@ -194,8 +194,9 @@ ${UI}
 
   const sync = {
     status: () => askBridge('status'),
-    syncNow: (records) => askBridge('push', { records: (records || []).map((r) => ({ code: r.code, status: r.status, last_tried: r.last_tried })) }),
     getSettings: () => askBridge('getSettings'),
+    setSettings: (payload) => askBridge('setSettings', payload),
+    syncNow: (records) => askBridge('push', { records: (records || []).map((r) => ({ code: r.code, status: r.status, last_tried: r.last_tried })) }),
     /* The drawer's IndexedDB belongs to the Garena origin, so mirror finished
      * attempts into the worker's shared storage — that is the only way the
      * full-page app and the popup can show a run done here. */
@@ -739,6 +740,9 @@ const optionsHtml = `<!doctype html>
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
   .note { margin: 8px 0 0; color: var(--ink-mute); font-size: 10.5px; line-height: 1.55; }
   .status { margin-left: 4px; font: 700 11px var(--mono); }
+  .sync-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; color: var(--ink-mute); font: 10.5px var(--mono); }
+  .sync-meta span + span::before { content: '·'; margin-right: 8px; color: var(--ink-dim); }
+  .sync-meta .ok { color: var(--primary); } .sync-meta .err { color: var(--danger); }
   .ok { color: var(--primary); } .err { color: var(--danger); }
 </style>
 </head>
@@ -748,7 +752,7 @@ const optionsHtml = `<!doctype html>
     <div class="mark">DF</div>
     <div>
       <h1>Delta Force Auto Redeem</h1>
-      <p class="sub">Kho code là danh sách mã quà và mã lắp súng extension lưu trong máy bạn. Đồng bộ giúp giữ nguyên trạng thái đã đổi khi bạn dùng Chrome trên máy khác. Không bật cũng dùng bình thường được.</p>
+      <p class="sub">Kho cục bộ lưu trạng thái mã/preset trên máy. Đồng bộ chỉ sao lưu trạng thái đã đổi để khớp giữa các máy cùng tài khoản Chrome; không bật vẫn dùng bình thường.</p>
     </div>
     <span class="ver">v${VERSION}</span>
   </header>
@@ -756,10 +760,10 @@ const optionsHtml = `<!doctype html>
   <fieldset>
     <legend>Đồng bộ</legend>
     <label class="check"><input type="checkbox" id="enabled"> Bật đồng bộ kho code</label>
-    <p class="note">Tắt: mọi thứ chỉ nằm trên máy này. Bật: trạng thái đã đổi được sao lưu và khớp giữa các máy.</p>
+    <p class="note">Tắt: trạng thái chỉ ở máy này. Bật: sao lưu/khớp trạng thái đã đổi giữa các máy dùng cùng tài khoản Chrome. Không đồng bộ mã cộng đồng mới, preset mới hay dữ liệu đăng nhập.</p>
     <label>Nơi lưu
       <select id="backend">
-        <option value="chrome-sync">Chrome Sync (miễn phí, ~100 KB, theo tài khoản Google)</option>
+        <option value="chrome-sync">Chrome Sync (cần đăng nhập Chrome, tối đa ~100 KB)</option>
         <option value="rest">REST endpoint (tự host, không giới hạn)</option>
       </select>
     </label>
@@ -772,11 +776,16 @@ const optionsHtml = `<!doctype html>
       </label>
       <p class="note">Token gửi dưới dạng header Authorization. Mọi thông báo lỗi đều đã khử token trước khi hiện ra.</p>
     </div>
-    <label class="check"><input type="checkbox" id="auto"> Tự đồng bộ sau mỗi lượt chạy</label>
-    <p class="note">Nên bật — sau mỗi lượt đổi, kết quả được đẩy lên ngay, không cần bấm Lưu.</p>
+    <label class="check"><input type="checkbox" id="auto"> Tự đồng bộ sau khi chạy đổi mã</label>
+    <p class="note">Nên bật — sau khi lượt đổi hoàn tất, trạng thái đã ghi cục bộ sẽ được đồng bộ. Nếu cloud lỗi, dữ liệu trên máy vẫn giữ nguyên; mở lại trang này để xem lỗi hoặc thử lại.</p>
+    <div class="sync-meta" id="sync-meta" aria-live="polite">
+      <span id="sync-state">Chưa kiểm tra kết nối</span>
+      <span id="sync-last"></span>
+      <span id="sync-count"></span>
+    </div>
     <div class="row">
-      <button class="primary" id="save">Lưu</button>
-      <button id="test">Kiểm tra kết nối</button>
+      <button class="primary" id="save">Lưu cài đặt</button>
+      <button id="test">Kiểm tra và đồng bộ thử</button>
       <span class="status" id="status"></span>
     </div>
   </fieldset>
@@ -812,6 +821,26 @@ const optionsJs = `/* options.js — reads and writes sync settings through the 
 
   function toggleRest() { $('rest-only').hidden = $('backend').value !== 'rest'; }
 
+  function renderSyncStatus(status) {
+    const state = $('sync-state');
+    const last = $('sync-last');
+    const count = $('sync-count');
+    if (!state) return;
+    const labels = { ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', error: 'Lỗi đồng bộ', 'never-synced': 'Chưa đồng bộ' };
+    const value = status && status.state || 'never-synced';
+    state.textContent = labels[value] || value;
+    state.className = value === 'error' ? 'err' : value === 'ok' ? 'ok' : '';
+    last.textContent = status && status.lastSyncAt ? 'Lần cuối: ' + new Date(status.lastSyncAt).toLocaleString() : '';
+    count.textContent = status && Number.isFinite(Number(status.recordCount)) ? String(status.recordCount) + ' mã' : '';
+    if (value === 'error' && status.error) state.title = status.error;
+    else state.removeAttribute('title');
+  }
+
+  async function refreshSyncStatus() {
+    const status = await ask('status');
+    renderSyncStatus(status || { state: 'never-synced' });
+  }
+
   async function load() {
     const settings = (await ask('getSettings')) || {};
     $('enabled').checked = settings.enabled === true;
@@ -821,6 +850,7 @@ const optionsJs = `/* options.js — reads and writes sync settings through the 
     /* hasToken is a boolean flag; the token itself never leaves the worker. */
     if (settings.hasToken) $('token').placeholder = '•••••• (đã lưu — để trống nếu không đổi)';
     toggleRest();
+    await refreshSyncStatus();
   }
 
   $('backend').addEventListener('change', toggleRest);
@@ -844,6 +874,7 @@ const optionsJs = `/* options.js — reads and writes sync settings through the 
     flash($('status'), 'Đang kiểm tra…', true);
     const res = await ask('test');
     flash($('status'), res && res.ok ? 'Kết nối tốt.' : 'Thất bại: ' + ((res && res.error) || 'không rõ'), res && res.ok);
+    renderSyncStatus(res && res.status ? res.status : { state: 'error', error: res && res.error });
   });
 
   $('export').addEventListener('click', async () => {

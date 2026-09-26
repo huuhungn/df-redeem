@@ -567,6 +567,22 @@ function createPanel(options) {
           });
         } catch (_) {}
       }
+      /* The options page promises a sync after every run. Run it only after the
+       * final attempt has been recorded; otherwise the final status can miss the
+       * snapshot. A failed sync is non-destructive: the local vault remains the
+       * source of truth and the status is kept for the options page to show. */
+      if (opts.sync && opts.sync.syncNow && vault && vault.all) {
+        try {
+          const settings = opts.sync.getSettings ? await opts.sync.getSettings() : null;
+          if (!settings || (settings.enabled !== false && settings.autoSync !== false)) {
+            const reply = await opts.sync.syncNow(await vault.all());
+            const syncStatus = reply && reply.status ? reply.status : reply;
+            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+          }
+        } catch (error) {
+          toast('Đồng bộ lỗi: ' + (error && error.message || error), 'err');
+        }
+      }
       const start = $('[data-act="start"]');
       if (start) start.disabled = false;
       const p = $('[data-act="pause"]'); if (p) { p.disabled = true; p.textContent = 'Tạm dừng'; }

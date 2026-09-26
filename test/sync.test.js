@@ -16,7 +16,8 @@ function makeStorage(quotaBytes) {
     data,
     get(keys) {
       const out = {};
-      const wanted = typeof keys === 'string' ? { [keys]: undefined } : keys;
+      const wanted = Array.isArray(keys) ? Object.fromEntries(keys.map((key) => [key, undefined]))
+        : typeof keys === 'string' ? { [keys]: undefined } : keys;
       for (const key of Object.keys(wanted || data)) {
         out[key] = key in data ? data[key] : wanted[key];
       }
@@ -32,6 +33,15 @@ function makeStorage(quotaBytes) {
         }
       }
       Object.assign(data, value);
+      return Promise.resolve();
+    },
+    remove(keys) {
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const key of list) delete data[key];
+      return Promise.resolve();
+    },
+    clear() {
+      for (const key of Object.keys(data)) delete data[key];
       return Promise.resolve();
     },
   };
@@ -68,7 +78,13 @@ test('compactDelta skips blank and missing codes', () => {
   assert.deepStrictEqual(Object.keys(delta), ['DFOK']);
 });
 
-/* --- last-write-wins ---------------------------------------------------- */
+test('compactDelta accepts the vault last_tried ISO timestamp used by the extension bridge', () => {
+  const svc = Sync.createSyncService({ chromeApi: makeChrome() });
+  const delta = svc.compactDelta([{ code: 'DFISO', status: 'success', last_tried: '2026-09-26T15:20:00.000Z' }]);
+  assert.strictEqual(delta.DFISO.timestamp, Date.parse('2026-09-26T15:20:00.000Z'));
+});
+
+
 test('mergeDeltas resolves conflicts by newest timestamp regardless of side', () => {
   const svc = Sync.createSyncService({ chromeApi: makeChrome() });
   const merged = svc.mergeDeltas(
@@ -141,8 +157,53 @@ test('chrome-sync backend happy path stores the merged delta and reports ok', as
   assert.strictEqual(status.state, 'ok');
   assert.strictEqual(status.recordCount, 2);
   assert.strictEqual(status.lastSyncAt, 1750000000000);
-  const stored = chromeApi.storage.sync.data[svc.keys.SYNC_DELTA_KEY];
+  const manifest = chromeApi.storage.sync.data[svc.keys.SYNC_MANIFEST_KEY];
+  assert.strictEqual(manifest.version, 2);
+  assert.strictEqual(manifest.keys.length, 1);
+  assert.ok(manifest.keys[0].startsWith(svc.keys.SYNC_CHUNK_PREFIX));
+  const stored = chromeApi.storage.sync.data[manifest.keys[0]];
   assert.deepStrictEqual(Object.keys(stored).sort(), ['DFONE', 'DFTWO']);
+});
+
+test('chrome-sync writes shards below the per-item limit and round-trips a large vault', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'chrome-sync' } });
+  const rows = Array.from({ length: 450 }, (_, i) => ({
+    code: 'DF' + String(i).padStart(6, '0'), status: i % 2 ? 'success' : 'expired', timestamp: i + 1,
+  }));
+  const status = await svc.syncNow(rows);
+  assert.strictEqual(status.state, 'ok');
+  const manifest = chromeApi.storage.sync.data[svc.keys.SYNC_MANIFEST_KEY];
+  assert.ok(manifest.keys.length > 1, 'large vault should be sharded');
+  for (const key of manifest.keys) assert.ok(Buffer.byteLength(JSON.stringify(chromeApi.storage.sync.data[key])) <= 7000, key + ' exceeds the safe shard budget');
+  const second = Sync.createSyncService({ chromeApi });
+  await second.setLocal({ [second.keys.SETTINGS_KEY]: { syncBackend: 'chrome-sync' } });
+  const roundTrip = await second.syncNow(rows);
+  assert.strictEqual(roundTrip.state, 'ok');
+  assert.strictEqual(roundTrip.recordCount, rows.length);
+});
+
+test('chrome-sync reports an incomplete manifest instead of silently treating it as an empty chunk', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  chromeApi.storage.sync.data[svc.keys.SYNC_MANIFEST_KEY] = { version: 2, keys: [svc.keys.SYNC_CHUNK_PREFIX + 'missing'], recordCount: 1 };
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'chrome-sync' } });
+  const status = await svc.syncNow([{ code: 'DFLOCAL', status: 'success', timestamp: 1 }]);
+  assert.strictEqual(status.state, 'error');
+  assert.match(status.error, /chưa hoàn chỉnh/i);
+});
+
+test('chrome-sync reads a legacy single-key delta and migrates it on the next write', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  chromeApi.storage.sync.data[svc.keys.SYNC_DELTA_KEY] = { DFLEGACY: { code: 'DFLEGACY', status: 'success', timestamp: 8 } };
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'chrome-sync' } });
+  const status = await svc.syncNow([]);
+  assert.strictEqual(status.state, 'ok');
+  assert.strictEqual(status.recordCount, 1);
+  assert.ok(chromeApi.storage.sync.data[svc.keys.SYNC_MANIFEST_KEY]);
+  assert.ok(!(svc.keys.SYNC_DELTA_KEY in chromeApi.storage.sync.data), 'legacy key should be removed after migration');
 });
 
 test('chrome-sync pulls remote state and merges it into local records', async () => {

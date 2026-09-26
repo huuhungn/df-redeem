@@ -417,6 +417,14 @@ test('run tab constructs the engine through its real exported API', async () => 
   /* Construction failure must release the controls instead of hanging. */
   assert(/catch \(e\) \{[\s\S]{0,400}Không khởi tạo được lượt chạy/.test(panelSrc),
     'startRun must guard construction and surface the error');
+
+  /* The cloud-sync toggle must do exactly what it promises: wait until every
+   * attempt is persisted, then sync the full vault. A disabled toggle must not
+   * make a network call just because a run ended. */
+  assert(/await vault\.finishRun[\s\S]{0,1400}opts\.sync\.syncNow\(await vault\.all\(\)\)/.test(panelSrc),
+    'auto sync must run after finishing the local run and include the full vault');
+  assert(/settings\.enabled !== false && settings\.autoSync !== false/.test(panelSrc),
+    'auto sync must require both enabled cloud sync and the auto-sync setting');
 });
 
 test('hidden overlays actually disappear instead of covering the page', async () => {

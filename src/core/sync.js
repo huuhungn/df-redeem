@@ -7,6 +7,13 @@ const DFRedeemSync = (function attachSync(root) {
   const SETTINGS_KEY = 'dfRedeemSettings';
   const RECORDS_KEY = 'dfRedeemRecords';
   const STATUS_KEY = 'dfRedeemSyncStatus';
+  /* chrome.storage.sync limits a single stored item to 8 KB. Keep a small
+   * manifest plus shards rather than one ever-growing object: the full current
+   * vault is ~22 KB, so the old single-key design failed long before its quoted
+   * ~100 KB total allowance. */
+  const SYNC_MANIFEST_KEY = 'dfRedeemSyncManifest';
+  const SYNC_CHUNK_PREFIX = 'dfRedeemSyncChunk:';
+  const SYNC_CHUNK_BYTES = 7000;
   const SYNC_DELTA_KEY = 'dfRedeemSyncDelta';
   /* Random per-install id so the broker can count independent reporters without
    * using the IP address (everyone behind one router looked like one reporter,
@@ -50,6 +57,65 @@ const DFRedeemSync = (function attachSync(root) {
   function storageSet(storage, value) {
     return asPromise(() => storage.set(value));
   }
+  function storageRemove(storage, keys) {
+    return asPromise(() => storage.remove(keys));
+  }
+
+  function chunkDelta(delta) {
+    const chunks = [];
+    let current = {};
+    for (const [code, row] of Object.entries(delta || {}).sort(([a], [b]) => a.localeCompare(b))) {
+      const next = { ...current, [code]: row };
+      if (Object.keys(current).length && JSON.stringify(next).length > SYNC_CHUNK_BYTES) {
+        chunks.push(current);
+        current = { [code]: row };
+      } else current = next;
+    }
+    if (Object.keys(current).length) chunks.push(current);
+    return chunks;
+  }
+
+  function newSyncGeneration() {
+    /* Chunks are immutable once published. A unique generation prevents a reader
+     * from combining chunk 0 of one device's write with chunk 1 of another's. */
+    const random = typeof crypto !== 'undefined' && crypto.getRandomValues
+      ? Array.from(crypto.getRandomValues(new Uint32Array(2)), (n) => n.toString(36)).join('')
+      : Math.random().toString(36).slice(2);
+    return Date.now().toString(36) + '-' + random;
+  }
+
+  async function readChromeSyncDelta(sync) {
+    /* Compatibility: a small vault written by an older extension has no
+     * manifest. Read that one legacy key once, then the next successful write
+     * promotes it to chunks. */
+    const manifestReply = await storageGet(sync, { [SYNC_MANIFEST_KEY]: null, [SYNC_DELTA_KEY]: {} });
+    const manifest = manifestReply && manifestReply[SYNC_MANIFEST_KEY];
+    if (!manifest || !Array.isArray(manifest.keys)) return manifestReply && manifestReply[SYNC_DELTA_KEY] || {};
+    const reply = await storageGet(sync, manifest.keys);
+    const merged = {};
+    for (const key of manifest.keys) {
+      if (!Object.prototype.hasOwnProperty.call(reply || {}, key) || !reply[key] || typeof reply[key] !== 'object') {
+        throw new Error('Bản sao Chrome Sync chưa hoàn chỉnh; hãy thử đồng bộ lại.');
+      }
+      Object.assign(merged, reply[key]);
+    }
+    return merged;
+  }
+
+  async function writeChromeSyncDelta(sync, delta) {
+    const chunks = chunkDelta(delta);
+    const oldReply = await storageGet(sync, { [SYNC_MANIFEST_KEY]: null });
+    const oldManifest = oldReply && oldReply[SYNC_MANIFEST_KEY];
+    const generation = newSyncGeneration();
+    const keys = chunks.map((_, index) => SYNC_CHUNK_PREFIX + generation + ':' + index);
+    const body = Object.fromEntries(chunks.map((chunk, index) => [keys[index], chunk]));
+    /* Publish data before its pointer: readers see either the former complete
+     * generation or this complete generation, never a mixture of both. */
+    if (keys.length) await storageSet(sync, body);
+    await storageSet(sync, { [SYNC_MANIFEST_KEY]: { version: 2, generation, keys, recordCount: Object.keys(delta || {}).length } });
+    const obsolete = [...new Set([SYNC_DELTA_KEY, ...((oldManifest && oldManifest.keys) || [])])].filter((key) => !keys.includes(key));
+    if (obsolete.length) await storageRemove(sync, obsolete);
+  }
 
   /* crypto.randomUUID needs a secure context; the extension pages are one, but a
    * content script injected into an http page is not, so fall back rather than
@@ -70,8 +136,9 @@ const DFRedeemSync = (function attachSync(root) {
   }
 
   function timestampOf(record) {
-    const value = record && (record.timestamp ?? record.updatedAt ?? record.time);
-    const timestamp = Number(value);
+    const value = record && (record.timestamp ?? record.updatedAt ?? record.last_tried ?? record.time);
+    const numeric = Number(value);
+    const timestamp = Number.isFinite(numeric) ? numeric : typeof value === 'string' ? Date.parse(value) : NaN;
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
@@ -238,13 +305,12 @@ const DFRedeemSync = (function attachSync(root) {
     registerBackend('chrome-sync', {
       async pull() {
         if (!sync) throw new Error('chrome.storage.sync không khả dụng.');
-        const value = await storageGet(sync, { [SYNC_DELTA_KEY]: {} });
-        return value && value[SYNC_DELTA_KEY] || {};
+        return readChromeSyncDelta(sync);
       },
       async push(_settings, delta) {
         if (!sync) throw new Error('chrome.storage.sync không khả dụng.');
         try {
-          await storageSet(sync, { [SYNC_DELTA_KEY]: delta });
+          await writeChromeSyncDelta(sync, delta);
         } catch (error) {
           const message = String(error && error.message || error);
           if (/quota|QUOTA|bytes/i.test(message) || error && error.code === 'QUOTA_BYTES') {
@@ -311,6 +377,17 @@ const DFRedeemSync = (function attachSync(root) {
     async function status() {
       const raw = await getLocal({ [STATUS_KEY]: { state: 'never-synced', lastSyncAt: null, error: null } });
       return raw[STATUS_KEY];
+    }
+
+    /* Return the public settings needed by UI surfaces without exposing tokens. */
+    async function getSettings() {
+      const raw = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+      const settings = safeSettings(raw[SETTINGS_KEY]);
+      return {
+        autoSync: Number(settings.autoSyncMinutes || 0) > 0,
+        backend: settings.syncBackend === 'none' ? 'chrome-sync' : settings.syncBackend,
+        enabled: settings.syncBackend !== 'none',
+      };
     }
 
     /* ── community vault ───────────────────────────────────────────────────
@@ -437,12 +514,12 @@ const DFRedeemSync = (function attachSync(root) {
       }
     }
 
-    return { registerBackend, syncNow, status, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY } };
+    return { registerBackend, syncNow, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
   }
 
   /* mergeCommunityCodes is pure, so expose it at module level too: UI surfaces
    * need it without constructing a storage-backed service. */
-  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
+  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
   };
 
   const api = factory();
