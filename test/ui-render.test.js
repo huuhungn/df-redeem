@@ -448,6 +448,21 @@ test('hidden overlays actually disappear instead of covering the page', async ()
   assert(palette.hidden === true, 'palette starts closed');
 });
 
+test('the drawer shell constrains its row so the view host can scroll', () => {
+  /* `.df.shell` is a fixed 100vh grid, but its single row defaulted to `auto`:
+   * the drawer then sized to CONTENT (2200px for a 50-row library page), the
+   * `.view-host` never overflowed, and rows plus the pager sat below the
+   * viewport with no scrollbar anywhere — unreachable. The row must be
+   * height-capped for the inner scroller to engage. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'styles.css'), 'utf8');
+  const shell = css.match(/\.df\.shell\s*\{[^}]*\}/);
+  assert(shell, 'styles.css must define .df.shell');
+  assert(/grid-template-rows:\s*minmax\(\s*0\s*,\s*1fr\s*\)/.test(shell[0]),
+    '.df.shell needs grid-template-rows: minmax(0, 1fr) or the drawer grows past the viewport');
+  assert(/overflow:\s*auto/.test(css.match(/\.df \.view-host\s*\{[^}]*\}/)[0]),
+    '.view-host must be the scroller');
+});
+
 test('history merges the cross-origin mirror so every surface sees a run', async () => {
   /* The drawer's IndexedDB belongs to the Garena origin and the app's to
    * chrome-extension://, so a run done in the drawer was invisible on the

@@ -14,6 +14,11 @@
   z-index: 2147483646;
   display: grid;
   grid-template-columns: auto 1fr;
+  /* The single row MUST be height-constrained, not auto. Without this the
+   * drawer grows to its content height (2200px for a 50-row table) and the
+   * view-host never becomes a scroller, so rows and the pager fall off the
+   * bottom of the viewport with no way to reach them. */
+  grid-template-rows: minmax(0, 1fr);
   width: var(--w, 520px);
   max-width: 100vw;
   height: 100vh;
