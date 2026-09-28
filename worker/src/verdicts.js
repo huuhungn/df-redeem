@@ -19,5 +19,7 @@ export const VERDICT_BY_ERR = new Map([
  * outcomes must remain local, never become a community verdict. */
 export const PER_ACCOUNT = new Set([400054, 400067, 400069, 400055, 400056, 400050]);
 
-/* Transient: says nothing about the code. Also accepted and dropped. */
-export const TRANSIENT = new Set([400001, 10, 401009, 401010]);
+/* Transient: says nothing about the code. Also accepted and dropped.
+ * 51 is Garena's generic system error — the request never produced a verdict,
+ * so it must never reach the shared vault. */
+export const TRANSIENT = new Set([400001, 10, 401009, 401010, 51]);

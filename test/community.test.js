@@ -102,6 +102,8 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
       { code: 'dead1code', status: 'invalid', err_code: 400054 },
       { code: 'ExpiredCase1', status: 'expired', err_code: 400068 },
       { code: 'mine1code', status: 'mine', err_code: 400067 },
+      { code: 'grouplim1', status: 'group_limit', err_code: 400067 },
+      { code: 'syserr1code', status: 'sys_error', err_code: 51 },
       { code: 'used1code', status: 'mine', err_code: 400069 },
       { code: 'untried01', status: 'untried', err_code: 0 },
       { code: 'region1code', status: 'invalid', err_code: 400055 },
@@ -121,6 +123,11 @@ const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body 
     check('a possibly casing-specific invalid response is never reported', !posted.some((p) => p.err_code === 400054), JSON.stringify(posted));
     check('an account-specific verdict is never reported', !posted.some((p) => p.code === 'MINE1CODE'), JSON.stringify(posted));
     check('a locally used code is never reported', !posted.some((p) => p.code === 'USED1CODE'), JSON.stringify(posted));
+    /* A group cap is this account's ceiling, not the code's death: publishing it
+     * would mark a perfectly live code as spent for every other user. */
+    check('a reward-group cap is never reported', !posted.some((p) => p.code === 'GROUPLIM1'), JSON.stringify(posted));
+    /* Error 51 is Garena failing to answer, so there is no verdict to share. */
+    check('a Garena system error is never reported', !posted.some((p) => p.code === 'SYSERR1CODE'), JSON.stringify(posted));
     check('an untried code is never reported', !posted.some((p) => p.code === 'UNTRIED01'), JSON.stringify(posted));
     check('the per-account error code never leaves the machine', !posted.some((p) => p.err_code === 400067), JSON.stringify(posted));
     check('a repeat-redemption 400069 never leaves the machine', !posted.some((p) => p.err_code === 400069), JSON.stringify(posted));

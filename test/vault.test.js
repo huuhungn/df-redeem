@@ -204,6 +204,30 @@ test('legacy casing-ambiguous invalid results become retryable locally', async (
     assert.strictEqual((await vault.migrateCasingAmbiguousInvalids()).skipped, true);
   });
 
+  test('a group-cap row is split out of mine, a self-redeemed row is not', async () => {
+    /* 400067 (reward-group cap) and 400069 (this account already redeemed THIS
+     * code) both used to land in `mine`, which is why the panel could not
+     * explain "my friend redeemed it but I cannot". Only the 400067 row may
+     * move: the code is still alive for everyone else. */
+    const adapter = new MemoryAdapter();
+    await adapter.open();
+    await adapter.put('codes', {
+      key: 'gift:DFUTWQ200838', code: 'DFUTWQ200838', kind: 'giftcode',
+      status: 'mine', err_code: 400067, result_msg: 'reached the limit', shareable: false,
+    });
+    await adapter.put('codes', {
+      key: 'gift:DFSELFUSED1', code: 'DFSELFUSED1', kind: 'giftcode',
+      status: 'mine', err_code: 400069, result_msg: 'already used', shareable: false,
+    });
+    const vault = new Vault({ adapter });
+    const migrated = await vault.migrateGroupLimitOutOfMine();
+    assert.strictEqual(migrated.migrated, 1);
+    assert.strictEqual((await adapter.get('codes', 'gift:DFUTWQ200838')).status, 'group_limit');
+    assert.strictEqual((await adapter.get('codes', 'gift:DFSELFUSED1')).status, 'mine',
+      '400069 is a fact about this code and must stay in mine');
+    assert.strictEqual((await vault.migrateGroupLimitOutOfMine()).skipped, true);
+  });
+
   test('the three field-sourced untried codes remain local-only after 400054', async () => {
       /* 400054 can result from a casing variant. These records remain useful local
        * history, but public data must not call them globally invalid. */

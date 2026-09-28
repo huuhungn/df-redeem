@@ -219,9 +219,14 @@ const DFRedeemSync = (function attachSync(root) {
     return url.origin;
   }
 
-  /* A verdict is only shareable when it is true for everyone. 'mine' means
-   * "this account already redeemed it", which is useless (and mildly
-   * identifying) to other users, so it never leaves the machine. */
+  /* A verdict is only shareable when it is true for everyone. Account-scoped
+   * statuses never leave the machine:
+   *   - `mine`        — "this account already redeemed it": useless and mildly
+   *                     identifying to others
+   *   - `group_limit` — this account's reward-group cap; the code still works for
+   *                     everybody else, so publishing it would kill a live code
+   *   - `sys_error`   — Garena failed to answer; not a verdict at all
+   */
   const SHAREABLE_STATUS = new Set(['success', 'expired', 'gift_bug']);
   /* Statuses are presentation/local state. The upstream Garena error code is the
    * privacy boundary: only these code-wide outcomes may leave an installation.

@@ -3,7 +3,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
   'use strict';
 
   const DB_NAME = 'df-redeem-vault';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   const STORES = Object.freeze({
     codes: 'codes',
     runs: 'runs',
@@ -12,7 +12,15 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
     meta: 'meta',
   });
   const KINDS = Object.freeze(['giftcode', 'preset']);
-  const STATUSES = Object.freeze(['untried', 'success', 'expired', 'exhausted', 'mine', 'gift_bug', 'invalid']);
+  /* `mine` was one bucket for two different facts, and the difference is the
+   * whole answer to "why can my friend redeem this and I cannot?":
+   *   - `mine`        — THIS code was already redeemed by this account (400069)
+   *   - `group_limit` — this account hit the reward GROUP cap (400067); the code
+   *                     itself is alive and another account can still use it
+   * `sys_error` isolates Garena-side error 51 / transient failures so they stop
+   * hiding inside `untried`: they are not a verdict, they are "ask again later".
+   */
+  const STATUSES = Object.freeze(['untried', 'success', 'expired', 'exhausted', 'mine', 'group_limit', 'sys_error', 'gift_bug', 'invalid']);
   const PRESET_FORMATS = Object.freeze(['base32-21', 'numeric-19']);
   const SECRET_KEYS = /^(?:access_?token|refresh_?token|session_?token|token|cookie|cookies|authorization|auth|auth_?headers?|headers)$/i;
 
@@ -135,7 +143,9 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       ensureIndex(results, 'timestamp', 'timestamp');
     }
     /* v3 stores the same schema; it triggers Vault.init() to correct exactly the
-     * legacy 400069 rows that older builds called `exhausted`. */
+     * legacy 400069 rows that older builds called `exhausted`.
+     * v5 likewise only bumps the version so init() can split the overloaded
+     * `mine` bucket into `mine` + `group_limit`. */
     return newVersion;
   }
 
