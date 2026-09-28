@@ -64,7 +64,7 @@ jobs:
       # the suites then fail on CI while passing locally against a cached newer
       # copy. Installing the pin makes both environments agree.
       - name: Install pinned tooling
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # Guards the guard: if the suite is broken there is no basis for
       # publishing a rebuilt bundle to everyone who pulls.
@@ -93,6 +93,12 @@ jobs:
           src/ changed without a matching rebuild, so extension/ and dist/ no
           longer matched their sources. Anyone pulling would have loaded the
           previous bundle with no indication it was out of date."
+
+          # rebase refuses to run with anything unstaged, and the install step
+          # can touch the lockfile. Only extension/ and dist/ are being
+          # published, so park the rest rather than sweeping unrelated files
+          # into the commit.
+          git stash push --include-untracked --quiet || true
 
           # The branch may have advanced while the build ran; rebase rather than
           # force so a concurrent human commit is never overwritten.
