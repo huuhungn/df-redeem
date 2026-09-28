@@ -376,6 +376,77 @@ const TEST_CONFIRMATIONS = 2;
     const emptyBatch = await post('/submit-batch', { rows: [] }, asClient('10.0.20.4'));
     check('an empty batch is a no-op, not an error',
       emptyBatch.status === 200 && emptyBatch.json.queued === 0, JSON.stringify(emptyBatch.json));
+
+    /* ── equipment costs ─────────────────────────────────────────────────────
+     * The quorum arithmetic is unit-tested in test/costs.test.js; what needs a
+     * live Worker is the wiring: does a report reach KV, does the public read
+     * withhold reporter identities, and is the admin surface actually gated. */
+    const COST_CODE = 'DFCOST0000001';
+    const costA = await post('/cost', { code: COST_CODE, cost: '295426', install_id: '11111111-1111-4111-8111-111111111111' }, asClient('10.0.30.1'));
+    check('a first cost report is accepted',
+      costA.status === 200 && costA.json.cost === 295426 && costA.json.state === 'unconfirmed',
+      JSON.stringify(costA.json));
+
+    const costB = await post('/cost', { code: COST_CODE, cost: '290K', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
+    check('a second agreeing report confirms without admin action',
+      costB.status === 200 && costB.json.state === 'confirmed', JSON.stringify(costB.json));
+    check('confirmation keeps the precise reading, not the rounded one',
+      costB.json.cost === 295426, String(costB.json.cost));
+
+    const costDup = await post('/cost', { code: COST_CODE, cost: '295426', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
+    check('re-reporting an unchanged cost writes nothing',
+      costDup.status === 200 && costDup.json.unchanged === true, JSON.stringify(costDup.json));
+
+    const costC = await post('/cost', { code: COST_CODE, cost: '412000', install_id: '33333333-3333-4333-8333-333333333333' }, asClient('10.0.30.3'));
+    check('a disagreeing report escalates to disputed',
+      costC.status === 200 && costC.json.state === 'disputed', JSON.stringify(costC.json));
+    check('a dispute still serves a usable leading value',
+      costC.json.cost === 295426, String(costC.json.cost));
+
+    const badCost = await post('/cost', { code: COST_CODE, cost: 'abc', install_id: '44444444-4444-4444-8444-444444444444' }, asClient('10.0.30.4'));
+    check('a non-numeric cost is refused', badCost.status === 400, 'status ' + badCost.status);
+
+    const badCodeCost = await post('/cost', { code: '!!', cost: '1000' }, asClient('10.0.30.5'));
+    check('a malformed code is refused by /cost', badCodeCost.status === 400, 'status ' + badCodeCost.status);
+
+    const publicCosts = await get('/costs');
+    const costRow = publicCosts.json && (publicCosts.json.costs || []).find((r) => r.code === COST_CODE);
+    check('public /costs needs no credential and lists the row',
+      publicCosts.status === 200 && !!costRow, JSON.stringify(publicCosts.json && publicCosts.json.count));
+    check('public /costs never exposes reporter identities',
+      !!costRow && !('reports_detail' in costRow) && !JSON.stringify(costRow).includes('reporter'),
+      JSON.stringify(costRow));
+
+    const disputesNoAuth = await get('/cost-disputes');
+    check('cost disputes require the admin token', disputesNoAuth.status === 401, 'status ' + disputesNoAuth.status);
+
+    const disputes = await get('/cost-disputes', { Authorization: `Bearer ${ADMIN}` });
+    const dispute = disputes.json && (disputes.json.disputes || []).find((d) => d.code === COST_CODE);
+    check('an admin sees the dispute with every distinct reading',
+      disputes.status === 200 && !!dispute && dispute.readings.length === 2,
+      JSON.stringify(disputes.json));
+
+    const resolveNoAuth = await post('/cost-resolve', { code: COST_CODE, cost: '295426' }, asClient('10.0.30.6'));
+    check('resolving a dispute requires the admin token', resolveNoAuth.status === 401, 'status ' + resolveNoAuth.status);
+
+    const resolved = await post('/cost-resolve', { code: COST_CODE, cost: '295426' }, { Authorization: `Bearer ${ADMIN}` });
+    check('an admin can settle a dispute',
+      resolved.status === 200 && resolved.json.state === 'confirmed' && resolved.json.cost === 295426,
+      JSON.stringify(resolved.json));
+
+    const afterResolve = await get('/cost-disputes', { Authorization: `Bearer ${ADMIN}` });
+    check('a settled dispute leaves the review queue',
+      afterResolve.status === 200 && !(afterResolve.json.disputes || []).some((d) => d.code === COST_CODE),
+      JSON.stringify(afterResolve.json));
+
+    const missingResolve = await post('/cost-resolve', { code: 'DFNOTHERE0001', cost: '1000' }, { Authorization: `Bearer ${ADMIN}` });
+    check('resolving an unknown code is a 404, not a silent create',
+      missingResolve.status === 404, 'status ' + missingResolve.status);
+
+    const healthWithCosts = await get('/health');
+    check('health reports the cost queue size',
+      healthWithCosts.status === 200 && typeof healthWithCosts.json.costs === 'number',
+      JSON.stringify(healthWithCosts.json));
   } catch (error) {
     failed += 1;
     console.log('FAIL harness threw — ' + (error && error.message));

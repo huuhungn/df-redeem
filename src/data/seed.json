@@ -4301,6 +4301,19 @@
       "first_seen": "2026-09-25T15:15:00.000Z"
     },
     {
+      "code": "6LCTUP00AHP1JR9CHG3OI",
+      "weapon": "MK4 Submachine Gun",
+      "mode": "Chiến Dịch (Thoát Hiểm)",
+      "author": "NHẠC NGUYỄN",
+      "format": "base32-21",
+      "verified": true,
+      "cost": 295426,
+      "cost_state": "unconfirmed",
+      "cost_as_of": "2026-09-21",
+      "source": "user-submitted screenshot 2026-09-28",
+      "first_seen": "2026-09-28T04:32:36.265Z"
+    },
+    {
       "code": "6KQOCNC0DGSQA4BKR9BOU",
       "weapon": "M14 Marksman Rifle",
       "mode": "Chiến Dịch Sinh Tồn",

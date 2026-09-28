@@ -24,7 +24,7 @@ const check = (name, ok, detail) => {
   fs.copyFileSync(CODES_FILE, CODES_BACKUP);
   fs.copyFileSync(PRESETS_FILE, PRESETS_BACKUP);
 
-  execFileSync(process.execPath, [path.join(ROOT, 'tools', 'make-public-data.js')], { cwd: ROOT, stdio: 'pipe' });
+  execFileSync(process.execPath, [path.join(ROOT, 'tools', 'make-public-data.js'), '--force'], { cwd: ROOT, stdio: 'pipe' });
   const doc = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
   const rows = doc.codes || [];
   const statuses = new Set(rows.map((row) => row.status));
@@ -36,6 +36,33 @@ const check = (name, ok, detail) => {
   check('the generated count matches its rows',
     Object.values(doc.counts || {}).reduce((sum, count) => sum + Number(count || 0), 0) === rows.length,
     JSON.stringify(doc.counts));
+
+  /* The generator projects the local seed, but data/codes.json is co-owned with
+   * tools/merge-pending.js, which folds in community reports and raises
+   * `confirmations` past 1. Running the generator bare once silently deleted 35
+   * merged codes. Without --force it must refuse rather than shrink the file. */
+  fs.copyFileSync(CODES_BACKUP, CODES_FILE);
+  const beforeGuard = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
+  const merged = (beforeGuard.codes || []).filter((row) => Number(row.confirmations || 0) > 1);
+  let blocked = false;
+  let guardErr = '';
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'tools', 'make-public-data.js')], { cwd: ROOT, stdio: 'pipe' });
+  } catch (e) {
+    blocked = true;
+    guardErr = String(e.stderr || '');
+  }
+  check('the generator refuses to clobber community-confirmed codes',
+    merged.length === 0 || blocked, `merged=${merged.length} blocked=${blocked}`);
+  check('the refusal names the loss instead of failing silently',
+    merged.length === 0 || /community-confirmed/.test(guardErr), guardErr.slice(0, 160));
+  const afterGuard = JSON.parse(fs.readFileSync(CODES_FILE, 'utf8'));
+  check('a blocked run leaves data/codes.json byte-identical',
+    (afterGuard.codes || []).length === (beforeGuard.codes || []).length,
+    `before=${(beforeGuard.codes || []).length} after=${(afterGuard.codes || []).length}`);
+  /* A blocked codes write must not strand an unrelated preset change. */
+  check('presets still publish even when the codes write is blocked',
+    fs.existsSync(PRESETS_FILE) && JSON.parse(fs.readFileSync(PRESETS_FILE, 'utf8')).presets.length > 0);
   completed = true;
 } catch (error) {
   check('public data generation completes', false, String(error.stderr || error.message || error));

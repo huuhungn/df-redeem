@@ -62,6 +62,14 @@ const presets = (seed.presets || [])
      * local operator and becomes "bundled" so the file says nothing about them. */
     author: /^user$/i.test(String(row.author || '')) ? 'bundled' : String(row.author || '').trim(),
     verified: row.verified === true,
+    /* Equipment cost travels with the preset when known. It is measured in-game
+     * by players, so it carries its agreement state rather than posing as a fact:
+     * an unconfirmed number must not look the same as one several users agree on.
+     * Presets with no cost on file omit both keys instead of publishing a 0,
+     * which would read as "this build is free". */
+    ...(Number(row.cost) > 0
+      ? { cost: Number(row.cost), cost_state: String(row.cost_state || 'unconfirmed') }
+      : {}),
   }))
   .sort((a, b) => a.weapon.localeCompare(b.weapon) || a.code.localeCompare(b.code));
 
@@ -90,7 +98,36 @@ const write = (rel, doc) => {
   console.log(`  ${rel}  ${(fs.statSync(file).size / 1024).toFixed(1)} KB`);
 };
 
+/* data/codes.json is co-owned: this generator projects the local seed, but
+ * tools/merge-pending.js folds in community reports and raises `confirmations`
+ * above 1. Projecting the seed over that file silently discards every merged
+ * code — 35 of them the first time this bit — and the loss is invisible in a
+ * build log that only prints totals. Refuse to shrink the published set or drop
+ * a multiply-confirmed code; run merge-pending to reconcile instead. */
+const guardCodes = (next) => {
+  const file = path.join(ROOT, 'data/codes.json');
+  if (!fs.existsSync(file)) return;
+  let prev;
+  try { prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return; }
+  const prevCodes = prev.codes || [];
+  const nextSet = new Set(next.map((row) => row.code));
+  const dropped = prevCodes.filter((row) => !nextSet.has(row.code));
+  const confirmed = dropped.filter((row) => Number(row.confirmations || 0) > 1);
+  if (!confirmed.length) return;
+  console.error(
+    `refusing to overwrite data/codes.json: ${confirmed.length} community-confirmed `
+    + `code(s) would be lost (e.g. ${confirmed.slice(0, 3).map((r) => r.code).join(', ')}).\n`
+    + 'These came from merge-pending, not the local seed. Run tools/merge-pending.js\n'
+    + 'to reconcile, or pass --force if you really mean to republish seed-only data.',
+  );
+  if (!process.argv.includes('--force')) process.exit(1);
+};
+
 console.log('public data written:');
-write('data/codes.json', codesDoc);
+/* Presets are wholly seed-derived, so they publish unconditionally. Codes are
+ * co-owned with merge-pending and must pass the guard first — ordering matters,
+ * since a blocked codes write must not also strand an unrelated preset change. */
 write('data/presets.json', presetsDoc);
+guardCodes(codes);
+write('data/codes.json', codesDoc);
 console.log(`  ${codes.length} codes, ${presets.length} presets`);

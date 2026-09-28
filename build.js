@@ -59,6 +59,7 @@ const codes = inline('codes.js');
 const garena = inline('garena.js');
 const engine = inline('engine.js');
 const weapons = inline('weapons.js');
+const costs = inline('costs.js');
 const seed = JSON.stringify(JSON.parse(warnRead(path.join(SRC, 'data', 'seed.json')) || '{}'));
 const uiDir = path.join(SRC, 'ui');
 const uiFiles = fs.existsSync(uiDir)
@@ -92,7 +93,7 @@ const BANNER = `/* Delta Force Auto Redeem v${VERSION}
  * redeem.df.garena.sg pages you already opened and logged into.
  */`;
 
-const CORE = `${schema}\n${vault}\n${sync}\n${codes}\n${garena}\n${weapons}\n${engine}\nconst DF_REDEEM_SEED = ${seed};`;
+const CORE = `${schema}\n${vault}\n${sync}\n${codes}\n${garena}\n${weapons}\n${costs}\n${engine}\nconst DF_REDEEM_SEED = ${seed};`;
 /* The service worker needs only sync.js — it must not carry the DOM engine. */
 const CORE_SYNC = sync;
 const UI = `const DF_THEME_CSS = ${JSON.stringify(themeCss)};
@@ -221,6 +222,8 @@ ${UI}
     readMirror: () => askBridge('readMirror'),
     communityPull: () => askBridge('communityPull'),
     communityPush: (rows) => askBridge('communityPush', { rows }),
+    fetchCosts: () => askBridge('fetchCosts'),
+    reportCost: (code, cost) => askBridge('reportCost', { code, cost }),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -520,6 +523,8 @@ ${UI}
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
     mirrorAttempts: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'mirrorAttempts', payload: { rows } }),
     communityPull: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPull' }),
+    fetchCosts: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'fetchCosts' }),
+    reportCost: (code, cost) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
   const panel = createPanel({ version: '${VERSION}', target: 'page', surface: 'page', sync });
@@ -1001,6 +1006,25 @@ async function handleSync(op, payload) {
       needed: Number(result.needed || 0),
       skipped: result.skipped || null,
       error: result.error || (result.failures && result.failures[0]) || null,
+    };
+  }
+  /* Equipment costs ride the same channel and for the same reason live here:
+   * the drawer's page CSP would block the fetch, the service worker's would not. */
+  if (op === 'fetchCosts') {
+    const result = await svc.fetchCosts(current);
+    if (!result.ok) return { ok: false, error: result.error || result.skipped || 'không tải được', costs: {} };
+    return { ok: true, costs: result.costs, count: Number(result.count || 0) };
+  }
+  if (op === 'reportCost') {
+    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, current);
+    return {
+      ok: Boolean(result.ok),
+      cost: Number(result.cost || 0),
+      state: result.state || null,
+      reports: Number(result.reports || 0),
+      unchanged: Boolean(result.unchanged),
+      skipped: result.skipped || null,
+      error: result.error || null,
     };
   }
 

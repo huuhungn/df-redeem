@@ -267,6 +267,12 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault; globalThis.__SEED = DF_REDEEM_SEED;`, sandbox, { filename: 'bundle.js' });
 
+/* Derive the expected preset count from the seed the bundle actually shipped.
+ * Hardcoding it meant every legitimately added preset broke five unrelated
+ * assertions, which trains you to edit the number instead of reading the
+ * failure — exactly the wrong reflex for a data-quality suite. */
+const SEED_PRESETS = (sandbox.__SEED && sandbox.__SEED.presets ? sandbox.__SEED.presets.length : 0);
+
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 let failures = 0;
@@ -289,7 +295,7 @@ test('seed loads into the vault', async () => {
   const stats = await vault.stats();
   assert(stats.total > 300, 'expected >300 gift records, got ' + stats.total);
   const presets = await vault.byKind('preset');
-  assert(presets.length === 20, 'expected 20 presets, got ' + presets.length);
+  assert(presets.length === SEED_PRESETS, `expected ${SEED_PRESETS} presets, got ` + presets.length);
 });
 
 test('open() renders dashboard with real numbers', async () => {
@@ -298,7 +304,7 @@ test('open() renders dashboard with real numbers', async () => {
   const kpis = sd.querySelectorAll('.kpi b').map((n) => Number(n.textContent));
   assert(kpis.length === 4, 'expected 4 KPI tiles, got ' + kpis.length);
   assert(kpis[0] > 100, 'success KPI should be >100, got ' + kpis[0]);
-  assert(kpis[3] === 20, 'preset KPI should be 20, got ' + kpis[3]);
+  assert(kpis[3] === SEED_PRESETS, `preset KPI should be ${SEED_PRESETS}, got ` + kpis[3]);
   const bars = sd.querySelectorAll('.bar-row');
   /* 9 = the 7 original statuses plus `group_limit` and `sys_error`, which were
    * split out of `mine`/`untried` so the panel can distinguish an account cap
@@ -364,7 +370,7 @@ test('presets view groups by weapon class and warns about in-game activation', a
   const callout = sd.querySelector('.info-box').textContent;
   assert(/Gunsmith/.test(callout), 'missing Gunsmith instruction');
   const cards = sd.querySelectorAll('.pcard');
-  assert(cards.length === 20, 'expected 20 preset cards, got ' + cards.length);
+  assert(cards.length === SEED_PRESETS, `expected ${SEED_PRESETS} preset cards, got ` + cards.length);
 
   /* Grouping moved from mode to weapon class: mode gave 3 buckets that told you
    * nothing about what a preset fits, while the class answers the question the
@@ -381,8 +387,8 @@ test('presets view groups by weapon class and warns about in-game activation', a
   assert(heads[0] === 'Súng Trường Tấn Công', 'class order should follow Gunsmith, got ' + heads[0]);
 
   /* Every card must still show a copyable code and its mode. */
-  assert(sd.querySelectorAll('.pc-code').length === 20, 'every preset needs a code element');
-  assert(sd.querySelectorAll('.pc-mode').length === 20, 'every preset needs a mode chip');
+  assert(sd.querySelectorAll('.pc-code').length === SEED_PRESETS, 'every preset needs a code element');
+  assert(sd.querySelectorAll('.pc-mode').length === SEED_PRESETS, 'every preset needs a mode chip');
 });
 
 test('preset class chips filter the grid', async () => {
@@ -408,7 +414,60 @@ test('preset class chips filter the grid', async () => {
   const clear = sd.querySelector('[data-act="pclear"]');
   assert(clear, 'missing clear-filter button while filtered');
   clear.dispatchEvent(dom.makeEvent('click', clear));
-  assert(sd.querySelectorAll('.pcard').length === 20, 'clearing should restore all presets');
+  assert(sd.querySelectorAll('.pcard').length === SEED_PRESETS, 'clearing should restore all presets');
+});
+
+test('equipment cost renders with its agreement state and an edit affordance', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+
+  /* Every card offers the cost row, so contributing is discoverable rather than
+   * hidden behind a hover or a menu. */
+  const rows = sd.querySelectorAll('.pc-cost');
+  assert(rows.length === SEED_PRESETS, `every preset needs a cost row, got ${rows.length}`);
+  assert(sd.querySelectorAll('[data-act="cost-edit"]').length === SEED_PRESETS,
+    'every preset needs a cost edit button');
+
+  /* The seeded MK4 ships a measured cost, so it must render formatted rather
+   * than as a raw integer or a placeholder. */
+  const withCost = rows.find((r) => /295\.426/.test(r.textContent));
+  assert(withCost, 'seeded MK4 cost should render with thousands separators');
+  assert(/Chưa đối chiếu/.test(withCost.textContent),
+    'an unconfirmed cost must say so instead of looking agreed: ' + withCost.textContent);
+
+  /* A preset nobody has priced shows a dash and invites a contribution, rather
+   * than showing 0 (which reads as "this build is free"). */
+  const empty = rows.find((r) => /—/.test(r.textContent));
+  assert(empty, 'presets without a cost should show a dash');
+  assert(/\+ Thêm/.test(empty.textContent), 'an empty cost should invite a contribution');
+});
+
+test('cost editing validates input and never loses a measured number', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+
+  const edit = sd.querySelectorAll('[data-act="cost-edit"]')[0];
+  edit.dispatchEvent(dom.makeEvent('click', edit));
+  const input = sd.querySelector('.pc-costedit .costin');
+  assert(input, 'clicking edit should open an input');
+  assert(sd.querySelectorAll('.pc-costedit').length === 1,
+    'only one cost editor may be open at a time');
+
+  /* Garbage is refused in place, with the typed text preserved so the user can
+   * fix a typo instead of retyping the whole number. */
+  input.value = 'abc';
+  const save = sd.querySelector('[data-act="cost-save"]');
+  save.dispatchEvent(dom.makeEvent('click', save));
+  await new Promise((r) => setTimeout(r, 0));
+  const err = sd.querySelector('.pc-costedit .bad');
+  assert(err, 'a non-numeric cost should surface an inline error');
+  assert(sd.querySelector('.pc-costedit .costin').value === 'abc',
+    'the rejected text must survive so the user can correct it');
+
+  /* Cancelling closes the editor without writing anything. */
+  const cancel = sd.querySelector('[data-act="cost-cancel"]');
+  cancel.dispatchEvent(dom.makeEvent('click', cancel));
+  assert(!sd.querySelector('.pc-costedit'), 'cancel should close the editor');
 });
 
 test('preset search matches code, resolved name and submitted text', async () => {
@@ -444,7 +503,7 @@ test('share view separates gift codes from presets', async () => {
   const gift = sd.querySelector('.share-gift').value.split('\n').filter(Boolean);
   const pre = sd.querySelector('.share-preset').value.split('\n').filter(Boolean);
   assert(gift.length > 150, 'expected >150 shareable gift codes, got ' + gift.length);
-  assert(pre.length === 20, 'expected 20 preset lines, got ' + pre.length);
+  assert(pre.length === SEED_PRESETS, `expected ${SEED_PRESETS} preset lines, got ` + pre.length);
   assert(!gift.some((l) => l.includes('-')), 'gift list must not contain preset triples');
   assert(pre.every((l) => l.split('-').length >= 3), 'preset lines must be Name-Mode-Code');
 });

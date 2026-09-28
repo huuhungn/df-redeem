@@ -555,7 +555,85 @@ const DFRedeemSync = (function attachSync(root) {
       }
     }
 
-    return { registerBackend, syncNow, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
+    /* ── equipment costs ──────────────────────────────────────────────────────
+     * Costs ride the same credential-free community channel as verdicts, and
+     * derive their endpoints from the configured /submit URL the same way
+     * reportOutcomes derives /submit-batch. Keeping one configured URL means a
+     * user cannot end up with verdicts pointing at one broker and costs at
+     * another. */
+    function costEndpoints(settings) {
+      const endpoint = String((settings && settings.communityReportUrl) || '').trim();
+      if (!endpoint) return null;
+      if (!/\/submit$/.test(endpoint)) return null;
+      const base = endpoint.replace(/\/submit$/, '');
+      return { report: `${base}/cost`, list: `${base}/costs` };
+    }
+
+    /** Pull agreed community costs, keyed by code for O(1) lookup in the UI. */
+    async function fetchCosts(override) {
+      try {
+        /* Same convention as fetchCommunity: callers without a chromeApi (the
+         * console build, the service worker) pass settings in explicitly. */
+        const settings = override || (await getSettings());
+        if (settings && settings.communityEnabled === false) return { ok: false, skipped: 'disabled', costs: {} };
+        const urls = costEndpoints(settings);
+        if (!urls) return { ok: false, skipped: 'no-endpoint', costs: {} };
+        if (!fetchFn) return { ok: false, error: 'Không có fetch', costs: {} };
+        const response = await fetchFn(urls.list, { method: 'GET', headers: { accept: 'application/json' } });
+        if (!response || !response.ok) return { ok: false, error: `HTTP ${(response && response.status) || 0}`, costs: {} };
+        const doc = await response.json();
+        const costs = {};
+        for (const row of (doc && doc.costs) || []) {
+          const code = String((row && row.code) || '').trim().toUpperCase();
+          const value = Number(row && row.cost);
+          if (!code || !Number.isFinite(value) || value <= 0) continue;
+          costs[code] = { value, state: String(row.state || 'unconfirmed'), reports: Number(row.reports || 0) };
+        }
+        return { ok: true, costs, count: Object.keys(costs).length };
+      } catch (error) {
+        return { ok: false, error: String((error && error.message) || error), costs: {} };
+      }
+    }
+
+    /* Push one measured cost. Deliberately one-at-a-time rather than batched:
+     * costs are typed by hand one card at a time, so a batch endpoint would add
+     * a queue to flush and a partial-failure story for no real gain. */
+    async function reportCost(code, cost, override) {
+      try {
+        const settings = override || (await getSettings());
+        if (settings && settings.communityEnabled === false) return { ok: false, skipped: 'disabled' };
+        const urls = costEndpoints(settings);
+        if (!urls) return { ok: false, skipped: 'no-endpoint' };
+        if (!fetchFn) return { ok: false, error: 'Không có fetch' };
+        const response = await fetchFn(urls.report, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          /* Same minimal payload discipline as reportOutcomes: the code, the
+           * number, and a random per-install id. No account, no timestamp. */
+          body: JSON.stringify({ install_id: await installId(), code: String(code).trim(), cost }),
+        });
+        let doc = null;
+        try { doc = await response.json(); } catch { /* non-JSON error body */ }
+        if (!response || !response.ok) {
+          return {
+            ok: false,
+            error: (doc && doc.error) ? String(doc.error) : `HTTP ${(response && response.status) || 0}`,
+            retriable: response && (response.status === 429 || response.status === 503),
+          };
+        }
+        return {
+          ok: true,
+          cost: Number(doc && doc.cost) || 0,
+          state: String((doc && doc.state) || 'unconfirmed'),
+          reports: Number((doc && doc.reports) || 0),
+          unchanged: !!(doc && doc.unchanged),
+        };
+      } catch (error) {
+        return { ok: false, error: String((error && error.message) || error) };
+      }
+    }
+
+    return { registerBackend, syncNow, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, fetchCosts, reportCost, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
   }
 
   /* mergeCommunityCodes is pure, so expose it at module level too: UI surfaces
@@ -631,6 +709,25 @@ async function handleSync(op, payload) {
       needed: Number(result.needed || 0),
       skipped: result.skipped || null,
       error: result.error || (result.failures && result.failures[0]) || null,
+    };
+  }
+  /* Equipment costs ride the same channel and for the same reason live here:
+   * the drawer's page CSP would block the fetch, the service worker's would not. */
+  if (op === 'fetchCosts') {
+    const result = await svc.fetchCosts(current);
+    if (!result.ok) return { ok: false, error: result.error || result.skipped || 'không tải được', costs: {} };
+    return { ok: true, costs: result.costs, count: Number(result.count || 0) };
+  }
+  if (op === 'reportCost') {
+    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, current);
+    return {
+      ok: Boolean(result.ok),
+      cost: Number(result.cost || 0),
+      state: result.state || null,
+      reports: Number(result.reports || 0),
+      unchanged: Boolean(result.unchanged),
+      skipped: result.skipped || null,
+      error: result.error || null,
     };
   }
 

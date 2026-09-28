@@ -98,6 +98,13 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       author: text(row.author),
       format,
       verified: Boolean(row.verified),
+      /* Equipment cost is optional and community-measured, so it is carried only
+       * when present and always with its agreement state. Writing a 0 here would
+       * make an unpriced build look free; omitting the key lets the UI say "no
+       * one has measured this yet", which is the truth. */
+      ...(Number(row.cost) > 0
+        ? { cost: Number(row.cost), cost_state: text(row.cost_state) || 'unconfirmed' }
+        : {}),
       first_seen: text(row.first_seen || now || new Date().toISOString()),
     };
   }

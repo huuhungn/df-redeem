@@ -24,6 +24,11 @@ const CODE_RE = /^[A-Za-z0-9]{6,32}$/;
  * cannot invent a status string — it reports err_code and the Worker decides. */
 import { VERDICT_BY_ERR, PER_ACCOUNT, TRANSIENT } from './verdicts.js';
 
+/* Cost quorum rules, shared byte-for-byte with the panel so "confirmed" means the
+ * same thing on both sides of the wire. Imported from src/core so there is one
+ * copy, not a Worker-local fork that drifts. */
+import Costs from '../../src/core/costs.js';
+
 /* Verdicts that may appear in the public file. Account-local `exhausted` is
  * deliberately not publishable: no current Garena error establishes it for all
  * accounts. Historical rows remain readable in the repository but are never
@@ -359,12 +364,124 @@ async function handleAck(request, env) {
 
 async function handleHealth(env) {
   const listed = await env.VAULT.list({ prefix: 'pending:', limit: 1000 });
+  const costs = await env.VAULT.list({ prefix: 'cost:', limit: 1000 });
   return json({
     ok: true,
     service: 'df-redeem-vault',
     pending: listed.keys.length,
+    costs: costs.keys.length,
     confirmations_required: confirmationsRequired(env),
   });
+}
+
+/* ── equipment costs ────────────────────────────────────────────────────────
+ * A Gunsmith preset's cost is measured in-game by players, not derivable from
+ * the code, so it arrives the same way verdicts do: reports from distinct
+ * installs, with agreement promoting and disagreement escalating to a human.
+ * The quorum logic itself lives in src/core/costs.js and is shared verbatim with
+ * the panel, so the optimistic local state and the authoritative one cannot
+ * disagree about what "confirmed" means.
+ */
+async function handleCostReport(request, env) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
+  }
+
+  const code = String((payload && payload.code) || '').trim();
+  if (!CODE_RE.test(code)) return json({ ok: false, error: 'code must be 6-32 alphanumeric chars' }, { status: 400 });
+
+  /* Rate limited on the IP hash exactly like /submit: a cost report is a write,
+   * and an unlimited write endpoint is a way to burn the KV quota for free. */
+  const limitKey = await rateLimitKey(request, env);
+  if (await rateLimited(env, limitKey)) {
+    return json({ ok: false, error: 'rate limited, try later' }, { status: 429 });
+  }
+  const reporter = await reporterIdentity(request, env, payload && payload.install_id);
+
+  const key = `cost:${code.toUpperCase()}`;
+  const existing = JSON.parse((await env.VAULT.get(key)) || 'null');
+  const result = Costs.applyReport(existing, { value: payload && payload.cost, reporter });
+  if (!result.ok) return json({ ok: false, error: result.error }, { status: 400 });
+
+  /* Same quota discipline as recordVerdict: clients re-report their whole preset
+   * list, so an unchanged row must not cost a KV write. */
+  if (result.changed) {
+    await env.VAULT.put(key, JSON.stringify({ ...result.record, code }));
+  }
+
+  return json({
+    ok: true,
+    code,
+    cost: result.record.value,
+    state: result.record.state,
+    reports: result.record.reports.length,
+    outcome: result.outcome,
+    unchanged: !result.changed,
+    /* Reporter hashes never cross this boundary — only the readings. */
+    readings: Costs.disputeSummary(result.record).map((c) => ({ value: c.value, count: c.count })),
+  });
+}
+
+/** Public read: confirmed costs plus a dispute flag, no reporter identities. */
+async function handleCosts(env) {
+  const listed = await env.VAULT.list({ prefix: 'cost:', limit: 1000 });
+  const rows = [];
+  for (const entry of listed.keys) {
+    const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
+    if (!row) continue;
+    rows.push({
+      code: row.code || entry.name.slice(5),
+      cost: row.value,
+      state: row.state,
+      reports: Array.isArray(row.reports) ? row.reports.length : 0,
+      updated_at: row.updated_at,
+    });
+  }
+  return json({ ok: true, count: rows.length, costs: rows });
+}
+
+/** Admin: disputed costs with every distinct reading, for a human verdict. */
+async function handleCostDisputes(request, env) {
+  if (!adminOk(request, env)) return json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  const listed = await env.VAULT.list({ prefix: 'cost:', limit: 1000 });
+  const rows = [];
+  for (const entry of listed.keys) {
+    const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
+    if (!row || row.state !== 'disputed') continue;
+    rows.push({
+      code: row.code || entry.name.slice(5),
+      leading: row.value,
+      readings: Costs.disputeSummary(row).map((c) => ({ value: c.value, count: c.count })),
+      first_seen: row.first_seen,
+      updated_at: row.updated_at,
+    });
+  }
+  return json({ ok: true, count: rows.length, disputes: rows });
+}
+
+/** Admin: settle a dispute by picking the correct reading. */
+async function handleCostResolve(request, env) {
+  if (!adminOk(request, env)) return json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ ok: false, error: 'body must be JSON' }, { status: 400 });
+  }
+  const code = String((payload && payload.code) || '').trim();
+  if (!CODE_RE.test(code)) return json({ ok: false, error: 'code must be 6-32 alphanumeric chars' }, { status: 400 });
+
+  const key = `cost:${code.toUpperCase()}`;
+  const existing = JSON.parse((await env.VAULT.get(key)) || 'null');
+  if (!existing) return json({ ok: false, error: 'no cost on file for that code' }, { status: 404 });
+
+  const result = Costs.resolveDispute(existing, payload && payload.cost, 'admin');
+  if (!result.ok) return json({ ok: false, error: result.error }, { status: 400 });
+  await env.VAULT.put(key, JSON.stringify({ ...result.record, code: existing.code || code }));
+  return json({ ok: true, code, cost: result.record.value, state: result.record.state });
 }
 
 export default {
@@ -380,6 +497,10 @@ export default {
       else if (url.pathname === '/submit-batch' && request.method === 'POST') response = await handleSubmitBatch(request, env);
       else if (url.pathname === '/pending' && request.method === 'GET') response = await handlePending(request, env);
       else if (url.pathname === '/ack' && request.method === 'POST') response = await handleAck(request, env);
+      else if (url.pathname === '/cost' && request.method === 'POST') response = await handleCostReport(request, env);
+      else if (url.pathname === '/costs' && request.method === 'GET') response = await handleCosts(env);
+      else if (url.pathname === '/cost-disputes' && request.method === 'GET') response = await handleCostDisputes(request, env);
+      else if (url.pathname === '/cost-resolve' && request.method === 'POST') response = await handleCostResolve(request, env);
       else response = json({ ok: false, error: 'not found' }, { status: 404 });
     } catch (error) {
       /* Never surface an internal message to a client: it can carry binding names

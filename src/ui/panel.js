@@ -77,7 +77,15 @@ function createPanel(options) {
   let presetFilter = { cls: 'all', q: '' };
   let libPage = 0;
   let selection = new Set();
-  let cache = { codes: [], presets: [], stats: null, history: [] };
+  let cache = { codes: [], presets: [], stats: null, history: [], costs: {} };
+  /* Costs this user has entered. Kept separate from `cache.costs` (the pulled
+   * community record) so an unsynced edit survives a refresh and is visibly
+   * "chờ gửi" rather than being silently replaced by the cloud value. */
+  let costLocal = {};
+  /* Which card is in cost-edit mode, plus its in-flight text and last error.
+   * Only one card edits at a time: a grid of open inputs is how you get a user
+   * typing a number into the wrong preset. */
+  let costEdit = { code: null, value: '', error: '' };
   let historyCode = null;
   let paletteOpen = false;
 
@@ -179,6 +187,74 @@ function createPanel(options) {
   const viewHost = $('.view-host');
   const footer = $('.ft');
 
+  /* Save a hand-measured cost: validate locally, keep it optimistically, then
+   * push. A failed push is not a lost number — it stays local and visibly
+   * "chờ gửi", so the user's measurement work is never thrown away by a network
+   * blip. */
+  async function saveCost(code) {
+    const input = $('.pc-costedit .costin');
+    const raw = input ? input.value : costEdit.value;
+    const parsed = Costs.parseCost(raw);
+    if (!parsed.ok) {
+      costEdit = { code, value: String(raw || ''), error: parsed.error };
+      return renderPresets();
+    }
+
+    const key = String(code).toUpperCase();
+    costLocal[key] = { value: parsed.value, state: 'unconfirmed', pending: true };
+    costEdit = { code: null, value: '', error: '' };
+    renderPresets();
+    await persistLocalCosts();
+
+    if (!(opts.sync && opts.sync.reportCost)) {
+      toast(`Đã lưu chi phí ${Costs.formatCost(parsed.value)} (chỉ trên máy này).`, 'ok');
+      return undefined;
+    }
+
+    const reply = await opts.sync.reportCost(key, parsed.value);
+    if (!reply || !reply.ok) {
+      if (reply && reply.skipped) {
+        toast(`Đã lưu ${Costs.formatCost(parsed.value)} trên máy này — chưa bật kho chung nên không gửi lên được.`, 'warn');
+      } else {
+        toast(`Đã lưu trên máy này, gửi lên kho chung lỗi: ${(reply && reply.error) || 'không rõ'}`, 'warn');
+      }
+      return renderPresets();
+    }
+
+    /* The broker is authoritative about the agreed value and state, so adopt its
+     * answer rather than keeping our own optimistic guess. */
+    costLocal[key] = { value: reply.cost || parsed.value, state: reply.state, pending: false };
+    cache.costs[key] = { value: reply.cost || parsed.value, state: reply.state, reports: reply.reports };
+    await persistLocalCosts();
+    const label = (Costs.STATES[reply.state] && Costs.STATES[reply.state].label) || reply.state;
+    if (reply.state === 'disputed') {
+      toast(`Số của bạn khác số đang có — đã chuyển sang chờ phê duyệt. Đang hiển thị ${Costs.formatCost(reply.cost)}.`, 'warn');
+    } else if (reply.unchanged) {
+      toast(`Chi phí ${Costs.formatCost(reply.cost)} đã có sẵn, không cần gửi lại.`, 'ok');
+    } else {
+      toast(`Đã gửi ${Costs.formatCost(reply.cost)} lên kho chung · ${label}.`, 'ok');
+    }
+    return renderPresets();
+  }
+
+  /* Local costs live in the sync service's own key-value store when available so
+   * they survive a reload; a panel without a sync service still works, it just
+   * forgets on refresh rather than failing. */
+  async function persistLocalCosts() {
+    try {
+      if (opts.sync && opts.sync.setLocal) await opts.sync.setLocal('costsLocal', costLocal);
+    } catch (_) { /* storage full or unavailable: keep the in-memory copy */ }
+  }
+
+  async function loadLocalCosts() {
+    try {
+      if (opts.sync && opts.sync.getLocal) {
+        const stored = await opts.sync.getLocal('costsLocal');
+        if (stored && typeof stored === 'object') costLocal = stored;
+      }
+    } catch (_) { /* unreadable store: start empty */ }
+  }
+
   function toast(msg, tone) {
     const t = document.createElement('div');
     t.className = 'toast' + (tone ? ' ' + tone : '');
@@ -245,6 +321,24 @@ function createPanel(options) {
     }
     if (cfg.push && opts.sync.communityPush) {
       try { pushed = await opts.sync.communityPush(await vault.all()); } catch (_) { /* keep local result */ }
+    }
+    /* Pull agreed costs alongside the codes. Failure is silent for the same
+     * reason the code pull is: a broker that is down must not make the preset
+     * list look broken, it just means costs show as "—" until it recovers. */
+    if (cfg.pull !== false && opts.sync.fetchCosts) {
+      try {
+        const reply = await opts.sync.fetchCosts();
+        if (reply && reply.ok) {
+          cache.costs = reply.costs || {};
+          /* A local pending value that the broker now agrees with is no longer
+           * pending — drop it so the card stops showing "chờ gửi" forever. */
+          for (const [code, remote] of Object.entries(cache.costs)) {
+            const mine = costLocal[code];
+            if (mine && Costs.agrees && Costs.agrees(mine.value, remote.value)) delete costLocal[code];
+          }
+          await persistLocalCosts();
+        }
+      } catch (_) { /* offline: keep whatever costs we already have */ }
     }
     return { pulled, pushed };
   }
@@ -675,6 +769,40 @@ function createPanel(options) {
     ? Weapons.classifyPreset(p)
     : { cls: 'unknown', clsLabel: 'Chưa rõ loại súng', weapon: String((p && (p.weapon || p.gun)) || '—'), raw: '' });
 
+  /* Same defensive lookup as Weapons: a missing costs module must degrade to
+   * "no cost shown", never break the whole preset view. */
+  const Costs = (typeof root !== 'undefined' && root.DFRedeemCosts)
+    || (typeof window !== 'undefined' && window.DFRedeemCosts)
+    || {
+      formatCost: (v) => (v ? String(v) : '—'),
+      parseCost: () => ({ ok: false, error: 'Không tải được module chi phí' }),
+      STATES: {},
+    };
+
+  /* A preset's cost can come from three places, in order of authority:
+   *   1. the community record pulled from the Worker (agreed by several users)
+   *   2. the bundled data file (shipped with the build)
+   *   3. a value this user typed but has not synced yet
+   * The local unsynced value wins for display so editing feels immediate, with
+   * its pending state visible rather than silently overwritten on next pull. */
+  function costFor(preset) {
+    const code = String(preset && preset.code || '').toUpperCase();
+    const local = costLocal[code];
+    const remote = (cache.costs && cache.costs[code]) || null;
+    const bundled = preset && preset.cost
+      ? { value: Number(preset.cost), state: String(preset.cost_state || 'unconfirmed') }
+      : null;
+    const pick = local || remote || bundled;
+    if (!pick || !pick.value) return { value: 0, state: 'none', label: '', hint: '' };
+    const meta = Costs.STATES && Costs.STATES[pick.state];
+    return {
+      value: Number(pick.value),
+      state: pick.state,
+      label: local && local.pending ? 'Chờ gửi' : (meta ? meta.label : ''),
+      hint: local && local.pending ? 'Chưa gửi lên kho chung' : (meta ? meta.hint : ''),
+    };
+  }
+
   function renderPresets() {
     /* Resolve once, then filter: every row needs its class for both the chip
      * counts and the grouping, so classifying inside the loop would repeat the
@@ -733,7 +861,10 @@ function createPanel(options) {
 
       ${sections.length ? sections.map((s) => `<section class="card">
         <div class="card-hd"><h3>${esc(s.label)}</h3><span class="muted">${s.rows.length} mã</span></div>
-        <div class="pgrid">${s.rows.map(({ preset, meta }) => `<div class="pcard">
+        <div class="pgrid">${s.rows.map(({ preset, meta }) => {
+          const cost = costFor(preset);
+          const editing = costEdit.code === preset.code;
+          return `<div class="pcard${cost.state === 'disputed' ? ' pc-disputed' : ''}">
           <div class="pc-hd">
             <b>${esc(meta.weapon)}</b>
             ${preset.verified ? '<span class="tag ok" title="Đã kiểm tra">✓</span>' : ''}
@@ -744,10 +875,30 @@ function createPanel(options) {
             <span class="pc-mode">${esc(canonicalMode(preset.mode))}</span>
             ${preset.author && preset.author !== 'bundled' ? `<span class="muted pc-by">${esc(preset.author)}</span>` : ''}
           </div>
+
+          ${editing ? `<div class="pc-costedit">
+            <label class="fld"><span>Chi phí trang bị</span>
+              <input class="costin mono" inputmode="numeric" value="${esc(costEdit.value)}"
+                placeholder="ví dụ 295426 hoặc 290K" aria-label="Chi phí trang bị"></label>
+            <div class="btnrow tight">
+              <button class="act tiny primary" data-act="cost-save" data-code="${esc(preset.code)}">Lưu</button>
+              <button class="act tiny ghost" data-act="cost-cancel">Thôi</button>
+            </div>
+            <p class="muted tiny cost-hint">Số bạn nhập sẽ gửi lên kho chung. Người thứ hai báo trùng số là xác nhận; khác số thì chuyển sang chờ phê duyệt.</p>
+            ${costEdit.error ? `<p class="bad tiny">${esc(costEdit.error)}</p>` : ''}
+          </div>` : `<div class="pc-cost ${cost.value ? 'has' : 'none'}">
+            <span class="pc-cost-label">Chi phí</span>
+            <b class="pc-cost-val mono">${cost.value ? esc(Costs.formatCost(cost.value)) : '—'}</b>
+            ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
+            <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
+              title="${cost.value ? 'Sửa chi phí' : 'Áp preset trong game rồi nhập số vào đây'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
+          </div>`}
+
           <div class="pc-ft">
             <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}">Copy</button>
           </div>
-        </div>`).join('')}</div>
+        </div>`;
+        }).join('')}</div>
       </section>`).join('')
       : `<div class="empty"><div class="ei">⌖</div><p>${all.length
         ? 'Không có preset nào khớp bộ lọc.'
@@ -1041,6 +1192,20 @@ function createPanel(options) {
     /* presets */
     if (act === 'pchip') { presetFilter.cls = btn.dataset.k; return renderPresets(); }
     if (act === 'pclear') { presetFilter = { cls: 'all', q: '' }; return renderPresets(); }
+    /* cost editing — one card at a time, see costEdit */
+    if (act === 'cost-edit') {
+      const code = btn.dataset.code;
+      const current = costFor({ code, cost: 0 });
+      costEdit = { code, value: current.value ? String(current.value) : '', error: '' };
+      renderPresets();
+      /* Focus after render so the user can type straight away; without this the
+       * button keeps focus and the first keystroke goes nowhere. */
+      const input = $('.pc-costedit .costin');
+      if (input) { input.focus(); input.select(); }
+      return undefined;
+    }
+    if (act === 'cost-cancel') { costEdit = { code: null, value: '', error: '' }; return renderPresets(); }
+    if (act === 'cost-save') return saveCost(btn.dataset.code);
     if (act === 'pg-prev') { libPage = Math.max(0, libPage - 1); return renderLibrary(); }
     if (act === 'pg-next') { libPage += 1; return renderLibrary(); }
     if (act === 'row-copy') return copy(btn.dataset.code, 'mã ' + btn.dataset.code);
@@ -1189,6 +1354,9 @@ function createPanel(options) {
         vault._ready = true;
       } catch (e) { toast('Không mở được kho dữ liệu: ' + e.message, 'err'); }
     }
+    /* Local costs before the first paint, so a pending value the user typed last
+     * session is on screen immediately instead of appearing after the pull. */
+    await loadLocalCosts();
     await syncCommunityVault({ pull: true, push: false });
     await go(view);
   }

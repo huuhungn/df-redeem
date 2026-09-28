@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updated_at": "2026-09-25T15:28:40.458Z",
+  "updated_at": "2026-09-28T04:32:51.531Z",
   "note": "Gunsmith presets. Added only through the approved-preset issue form — never automatically.",
   "presets": [
     {
@@ -100,6 +100,15 @@
       "mode": "Chiến Dịch Sinh Tồn",
       "author": "bundled",
       "verified": true
+    },
+    {
+      "code": "6LCTUP00AHP1JR9CHG3OI",
+      "weapon": "MK4 Submachine Gun",
+      "mode": "Chiến Dịch (Thoát Hiểm)",
+      "author": "NHẠC NGUYỄN",
+      "verified": true,
+      "cost": 295426,
+      "cost_state": "unconfirmed"
     },
     {
       "code": "6KNTJ9002BLOGMGFDMK4F",

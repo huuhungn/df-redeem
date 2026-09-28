@@ -415,6 +415,12 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
           author: extra.author || '',
           format: extra.format || '',
           verified: extra.verified === true,
+          /* Equipment cost lives on the preset half of the join, so carry it
+           * through explicitly — a spread of `row` alone would silently drop it
+           * and the UI would show "—" for every seeded cost. */
+          ...(Number(extra.cost) > 0
+            ? { cost: Number(extra.cost), cost_state: extra.cost_state || 'unconfirmed' }
+            : {}),
         };
       });
     }
