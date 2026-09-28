@@ -284,6 +284,18 @@ ${CORE}
 
 const manifest = {
   manifest_version: 3,
+  /* Pins the extension ID to ckapnhmehhpkodhknihmbphpfhhdmeca.
+   *
+   * Without this, Chrome derives the ID of an unpacked extension from the
+   * absolute path of its directory. IndexedDB is keyed by the resulting
+   * chrome-extension:// origin, so moving or renaming the checkout — or
+   * cloning it to a second machine — produces a new ID and the vault appears
+   * empty, with the old codes stranded under an origin nothing loads any more.
+   *
+   * This is the public half of an RSA keypair; it is not a secret and carries
+   * no signing power on its own. The private half is only needed to publish a
+   * CRX to the Web Store and is deliberately NOT in this repo. */
+  key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6Fij9mAu9du6tiS0qsEHx5uM63dKmJGMMHyh9Ubh5j0YVPAF1icrm9kh6A/72ZK3d8ZPZgEf0WnU78yx32Xjudx6jydKIsxwVFxD/ov6tE3MpIoTCpzpBjhmUMipMUtDUZxU0zB4a9cZB6gXaxXnX+zLeOpLpsej1kvCzQpj/wKtlpXdoIo+FnS8kUoKcoRpCkHEub6dfggkXkX/9UA+fzEHEDWezdaKRCjgM95rVUWrfU6ZXeWKDg4LnWWE/vLXKVwJZE4+vCQr5Ktl/LEYFyFt0YxuSLTVwLoF4KjZqCfIxgz6fHJckqMwfUHi5luA+MBih9lCU6Nn7LL5rcHOkQIDAQAB',
   name: 'Delta Force Auto Redeem',
   /* Chrome truncates long names under the toolbar icon and on the extensions
    * page, so a short form is supplied rather than letting it cut mid-word. */
