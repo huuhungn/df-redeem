@@ -26,6 +26,12 @@ on:
       - 'src/**'
       - 'build.js'
       - 'package.json'
+      # The suite gates the rebuild, so a change to the suite itself must
+      # re-run it: otherwise a test edit that breaks the gate stays invisible
+      # until some unrelated src/ push trips over it.
+      - 'test/**'
+      - 'worker/**'
+      - '.github/workflows/rebuild-extension.yml'
   workflow_dispatch:
 
 permissions:
