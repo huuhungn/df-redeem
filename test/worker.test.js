@@ -81,7 +81,15 @@ const TEST_CONFIRMATIONS = 2;
     ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', STATE_DIR,
       '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:test-salt',
       '--var', `CONFIRMATIONS_REQUIRED:${TEST_CONFIRMATIONS}`],
-    { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
+    {
+      cwd: WORKER_DIR,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+      /* Own process group on POSIX so stop() can signal the whole tree with
+       * kill(-pid). Without this the negative pid would target this test
+       * runner's group instead of the server's. */
+      detached: process.platform !== 'win32',
+    },
   );
   let log = '';
   child.stdout.on('data', (d) => { log += d.toString(); });
@@ -89,8 +97,13 @@ const TEST_CONFIRMATIONS = 2;
 
   const stop = () => {
     try {
-      if (process.platform === 'win32') execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
-      else child.kill('SIGTERM');
+      if (process.platform === 'win32') {
+        execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        /* Negative pid = the whole process group. Signalling only npx leaves the
+         * workerd grandchild running, and it is what holds the port. */
+        process.kill(-child.pid, 'SIGKILL');
+      }
     } catch { /* already gone */ }
     try { fs.rmSync(STATE_DIR, { recursive: true, force: true }); } catch { /* best effort */ }
   };

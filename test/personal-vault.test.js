@@ -51,7 +51,16 @@ async function startWorker(stateDir, confirmations) {
     ['wrangler', 'dev', '--port', String(PORT), '--local', '--persist-to', stateDir,
       '--var', `ADMIN_TOKEN:${ADMIN}`, '--var', 'IP_SALT:personal-salt',
       '--var', `CONFIRMATIONS_REQUIRED:${confirmations}`],
-    { cwd: WORKER_DIR, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' },
+    {
+      cwd: WORKER_DIR,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+      /* npx spawns wrangler, which spawns workerd — and workerd is what holds
+       * the port. Signalling only the npx pid leaves workerd alive on POSIX, so
+       * the next phase cannot bind. Its own process group makes the whole tree
+       * addressable via kill(-pid), mirroring what taskkill /T does on Windows. */
+      detached: process.platform !== 'win32',
+    },
   );
   let log = '';
   child.stdout.on('data', (d) => { log += d.toString(); });
@@ -59,8 +68,14 @@ async function startWorker(stateDir, confirmations) {
 
   const stop = () => {
     try {
-      if (process.platform === 'win32') execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
-      else child.kill('SIGTERM');
+      if (process.platform === 'win32') {
+        execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        /* Negative pid = the whole process group, so workerd dies with npx.
+         * SIGKILL rather than SIGTERM: wrangler's own shutdown can outlive the
+         * port-free poll, and this is a throwaway test server. */
+        process.kill(-child.pid, 'SIGKILL');
+      }
     } catch { /* already gone */ }
   };
 
@@ -76,8 +91,9 @@ async function startWorker(stateDir, confirmations) {
   throw new Error('wrangler dev never became ready\n' + log.slice(-2000));
 }
 
-/* The port must be free before the next phase binds it, and Windows releases it
- * lazily after taskkill. Poll instead of sleeping a guessed interval. */
+/* The port must be free before the next phase binds it, and release is lazy on
+ * both platforms — Windows after taskkill, Linux while the process group winds
+ * down. Poll instead of sleeping a guessed interval. */
 async function waitForPortFree() {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
