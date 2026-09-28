@@ -48,6 +48,14 @@ jobs:
         with:
           node-version: '20'
 
+      # The worker suites boot `wrangler dev`. Without an install step npx
+      # resolves whatever version it likes, and a wrangler whose workerd binary
+      # predates worker/wrangler.jsonc's compatibility_date refuses to start —
+      # the suites then fail on CI while passing locally against a cached newer
+      # copy. Installing the pin makes both environments agree.
+      - name: Install pinned tooling
+        run: npm install --no-audit --no-fund
+
       # Guards the guard: if the suite is broken there is no basis for
       # publishing a rebuilt bundle to everyone who pulls.
       - name: Run tests

@@ -1,6 +1,11 @@
 {
   "name": "df-redeem-vault",
   "main": "src/index.js",
+  /* Must stay within what the pinned wrangler's workerd binary supports, or
+   * `wrangler dev` refuses to boot and the three worker test suites fail with
+   * "requires compatibility date X, but the newest date supported by this
+   * server binary is Y". Raising this date means raising the wrangler pin in
+   * package.json in the same commit. */
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
   "vars": {
