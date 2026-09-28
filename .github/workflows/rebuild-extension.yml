@@ -46,7 +46,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Wrangler 4.x refuses to start on Node below 22, which fails the three
+          # worker suites with "wrangler dev never became ready" rather than
+          # anything about the code. Kept in step with the engines field in
+          # package.json.
+          node-version: '22'
 
       # The worker suites boot `wrangler dev`. Without an install step npx
       # resolves whatever version it likes, and a wrangler whose workerd binary
