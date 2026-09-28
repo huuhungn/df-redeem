@@ -20,7 +20,14 @@ const VERSION = '3.1.3';
 const REDEEM_PATH = '/vi/cdkgarena.html';
 const REDEEM_URL = `https://redeem.df.garena.sg${REDEEM_PATH}`;
 
-const read = (...p) => fs.readFileSync(path.join(...p), 'utf8');
+/* Normalise to LF on read. Sources are checked out with core.autocrlf=true on
+ * Windows, so CSS and JS arrive as CRLF and get embedded verbatim inside the
+ * template literals below — the bundle then differs between a Windows and a
+ * Linux checkout of the same commit. Now that build output is committed, that
+ * showed up as a permanently dirty tree after cloning and rebuilding.
+ * .gitattributes cannot fix this: it governs the files Git writes, not the
+ * bytes this script splices into a string. */
+const read = (...p) => fs.readFileSync(path.join(...p), 'utf8').replace(/\r\n/g, '\n');
 /* Absolute paths of everything written, so the syntax gate at the end of this
  * build can re-parse each generated script. */
 const WRITTEN_FILES = [];
