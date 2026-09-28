@@ -1,0 +1,82 @@
+# Keeps the committed build output honest.
+#
+# extension/ and dist/ are tracked so that installing is "clone once, then
+# `git pull` + Reload". That only works if what is committed actually matches
+# src/. Nothing enforces it: `node build.js` is a manual step, and forgetting it
+# ships a stale bundle to everyone who pulls, with no visible error — the
+# extension simply keeps running the old code.
+#
+# So this rebuilds on every push and compares. Push button behaviour:
+#   - output matches  -> nothing happens
+#   - output differs  -> the refreshed build is committed back automatically
+#
+# Committing back rather than failing is deliberate: a red build would leave the
+# stale bundle in place, which is the exact failure being prevented.
+#
+# Note this workflow is NOT tied to the code-sync bot. sync-codes.yml writes
+# data/codes.json, which the extension fetches from raw.githubusercontent.com at
+# runtime (see communityDataUrl in src/core/sync.js). That data never enters the
+# bundle, so a data sync needs no rebuild.
+name: Rebuild committed extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'build.js'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # A second push while this one is committing would race on the same branch and
+  # lose one of the rebuilds. Queue instead of cancelling: cancelling mid-run
+  # could leave output committed for an older commit than the branch head.
+  group: rebuild-extension
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Guards the guard: if the suite is broken there is no basis for
+      # publishing a rebuilt bundle to everyone who pulls.
+      - name: Run tests
+        run: node test/run-all.js
+
+      - name: Rebuild
+        run: node build.js
+
+      - name: Commit refreshed output if it changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- extension dist; then
+            echo "Committed output already matches src/ — nothing to do."
+            exit 0
+          fi
+
+          echo "Build output is stale. Files that differ:"
+          git diff --stat -- extension dist
+
+          git config user.name  "df-redeem-bot"
+          git config user.email "df-redeem-bot@users.noreply.github.com"
+          git add extension dist
+          git commit -m "build: refresh committed output for ${GITHUB_SHA:0:7}
+
+          src/ changed without a matching rebuild, so extension/ and dist/ no
+          longer matched their sources. Anyone pulling would have loaded the
+          previous bundle with no indication it was out of date."
+
+          # The branch may have advanced while the build ran; rebase rather than
+          # force so a concurrent human commit is never overwritten.
+          git pull --rebase origin main
+          git push origin HEAD:main
