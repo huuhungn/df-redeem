@@ -33,6 +33,7 @@ const DFRedeemSync = (function attachSync(root) {
      * this client's own verdicts to the broker so other clients skip dead codes.
      * Both halves are opt-out independently — a user may consume the list without
      * contributing. No credential is involved in either direction. */
+    /* Opt-out is per-direction; see the comment above. */
     communityEnabled: true,
     communityDataUrl: 'https://raw.githubusercontent.com/huuhungn/df-redeem/main/data/codes.json',
     communityPresetsUrl: 'https://raw.githubusercontent.com/huuhungn/df-redeem/main/data/presets.json',
