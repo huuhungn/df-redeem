@@ -67,8 +67,17 @@ const themeCss = warnRead(path.join(uiDir, 'theme.css'))
 const styles = warnRead(path.join(uiDir, 'styles.css'));
 const panel = uiFiles.filter((file) => path.extname(file) !== '.css').map(warnRead).join('\n').replace(/__STYLES__/g, 'DF_REDEEM_STYLES');
 
+/* Build output is committed, so the banner must not carry a wall-clock
+ * timestamp: it would rewrite every bundle on every build and leave the tree
+ * permanently dirty, which destroys `git status` as a signal that something
+ * actually changed. SOURCE_DATE_EPOCH (the reproducible-builds convention)
+ * overrides it when a release needs a fixed stamp. */
+const BUILD_STAMP = process.env.SOURCE_DATE_EPOCH
+  ? new Date(Number(process.env.SOURCE_DATE_EPOCH) * 1000).toISOString()
+  : `v${VERSION}`;
+
 const BANNER = `/* Delta Force Auto Redeem v${VERSION}
- * Built ${new Date().toISOString()} — local build, no remote source
+ * Built ${BUILD_STAMP} — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
