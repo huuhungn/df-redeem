@@ -656,6 +656,45 @@ test('bundle touches no credentials beyond its own redaction guards', async () =
   assert(suspects.length === 0, 'unexpected credential lines: ' + suspects.map((s) => s.i).join(','));
 });
 
+/* Redemption only works on the Garena page. The view warned about being on the
+ * wrong page but left "Bắt đầu" enabled, so the warning read as advisory;
+ * clicking it produced a wall of network failures that look like dead codes
+ * rather than a wrong-page mistake. Render on a non-redeem host and assert the
+ * control is actually gated. Uses a second sandbox because the shared one pins
+ * hostname to the redeem page for every other test. */
+test('the run tab disables Bắt đầu when the tab is not on the redeem page', async () => {
+  const offDom = makeDom();
+  const offSandbox = { ...sandbox };
+  offSandbox.document = offDom.document;
+  offSandbox.location = { hostname: 'example.com', href: 'https://example.com/' };
+  offSandbox.localStorage = (() => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
+  })();
+  offSandbox.window = offSandbox;
+  offSandbox.self = offSandbox;
+  offSandbox.globalThis = offSandbox;
+  vm.createContext(offSandbox);
+  vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault;`, offSandbox, { filename: 'bundle-offpage.js' });
+
+  /* Memory-backed vault: the off-page sandbox has no IndexedDB either. */
+  const OV = offSandbox.__Vault;
+  const offVault = new OV.Vault({ adapter: new OV.MemoryAdapter() });
+  const panel = offSandbox.__createPanel({ version: 'test', target: 'test', vault: offVault });
+  await panel.go('run');
+  const shadow = panel._shadow;
+  const start = shadow.querySelector('[data-act="start"]');
+  assert(start, 'start button missing from the run view');
+  /* The harness DOM records a parsed `disabled` attribute in _attrs rather than
+   * reflecting it as a property, so check both shapes. */
+  const isDisabled = start.disabled === true
+    || (start._attrs && start._attrs.disabled != null)
+    || (typeof start.getAttribute === 'function' && start.getAttribute('disabled') != null);
+  assert(isDisabled, 'Bắt đầu must be disabled off the redeem page');
+  const warn = shadow.querySelector('.warn-box');
+  assert(warn, 'the wrong-page warning should still render alongside the disabled control');
+});
+
 (async () => {
   for (const t of tests) {
     try { await t.fn(); console.log('  ok   ' + t.name); }

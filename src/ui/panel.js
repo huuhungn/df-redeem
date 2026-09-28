@@ -512,11 +512,11 @@ function createPanel(options) {
   function renderRun() {
     const untried = untriedCodes();
     const retryable = cache.codes.filter((r) => r.status === 'sys_error');
-    const onRedeemPage = /redeem\.df\.garena\.sg$/.test(location.hostname || '');
+    const onPage = onRedeemPage();
     const queued = store.get('queue', '');
 
     viewHost.innerHTML = `<div class="pad">
-      ${onRedeemPage ? '' : `<div class="warn-box">
+      ${onPage ? '' : `<div class="warn-box">
         <b>Không ở trang đổi code.</b>
         <p>Tab này cần mở tại <code class="mono">redeem.df.garena.sg/vi/cdkgarena.html</code> và đã đăng nhập.</p>
         <button class="act tiny" data-act="open-redeem">Mở trang đổi code →</button>
@@ -547,7 +547,7 @@ function createPanel(options) {
       </section>
 
       <div class="runline">
-        <button class="act primary go" data-act="start">Bắt đầu</button>
+        <button class="act primary go" data-act="start"${onPage ? '' : ' disabled title="Cần mở tại trang đổi code của Garena"'}>Bắt đầu</button>
         <button class="act" data-act="pause" disabled>Tạm dừng</button>
         <button class="act danger" data-act="stop" disabled>Dừng</button>
       </div>
@@ -582,8 +582,18 @@ function createPanel(options) {
       .filter((value) => value.length >= 6 && !seen.has(value.toUpperCase()) && (seen.add(value.toUpperCase()), true));
   }
 
+  /* Redemption only works on the Garena page: every request from elsewhere
+   * fails at the network layer. The view already warns about this, but the
+   * Start button stayed enabled, so the warning read as advisory and clicking
+   * Start produced a wall of failures that looked like dead codes rather than
+   * a wrong-page mistake. Gate the control itself, and keep the guard in
+   * startRun() too since the engine is also reachable via the programmatic
+   * API at the bottom of this module. */
+  const onRedeemPage = () => /redeem\.df\.garena\.sg$/.test(location.hostname || '');
+
   async function startRun() {
     if (activeRun) return toast('Đang có lượt chạy.', 'warn');
+    if (!onRedeemPage()) return toast('Cần mở tab này tại trang đổi code của Garena.', 'warn');
     const codes = parseQueue($('.queue') ? $('.queue').value : '');
     if (!codes.length) return toast('Hàng chờ trống.', 'warn');
     if (!E) return toast('Thiếu engine.', 'err');
@@ -623,7 +633,7 @@ function createPanel(options) {
     } catch (e) {
       toast('Không khởi tạo được lượt chạy: ' + e.message, 'err');
       if (txt) txt.textContent = 'Lỗi khởi tạo: ' + e.message;
-      const s = $('[data-act="start"]'); if (s) s.disabled = false;
+      const s = $('[data-act="start"]'); if (s) s.disabled = !onRedeemPage();
       const p = $('[data-act="pause"]'); if (p) p.disabled = true;
       const st = $('[data-act="stop"]'); if (st) st.disabled = true;
       return;
@@ -735,7 +745,7 @@ function createPanel(options) {
         }
       }
       const start = $('[data-act="start"]');
-      if (start) start.disabled = false;
+      if (start) start.disabled = !onRedeemPage();
       const p = $('[data-act="pause"]'); if (p) { p.disabled = true; p.textContent = 'Tạm dừng'; }
       const st = $('[data-act="stop"]'); if (st) st.disabled = true;
       await refresh();
