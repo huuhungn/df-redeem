@@ -1,0 +1,633 @@
+/* theme.css — one design system for every surface: in-page drawer, full-page
+ * app, toolbar popup, options. Loaded into a shadow root (drawer) or a real
+ * document (page/popup/options), so everything is class-scoped, never :host-only.
+ *
+ * Direction: "tactical ops console". Hairline grids, corner ticks, stencil
+ * labels, tabular numerals. Amber is reserved for genuine warnings so status
+ * colour always means the same thing across all four surfaces.
+ */
+
+.df {
+  /* ── surface ── */
+  --void: #05080a;
+  --bg: #080d10;
+  --panel: #0b1317;
+  --raised: #101b20;
+  --sunken: #04090b;
+  --line: #1c2c33;
+  --line-soft: #142127;
+
+  /* ── ink ── */
+  --ink: #e8f6f2;
+  /* Contrast measured on the live panel against --raised: the old dim/mute pair
+   * sat at ~4.9 and ~3.0. At the 10.5–11.5px used by hints, pills and table
+   * text that is legible only in theory, so both are lifted: dim clears 7:1
+   * (AAA at this size) and mute clears AA instead of failing it outright. */
+  --ink-dim: #b8ccc8;
+  --ink-mute: #8ba39e;
+
+  /* ── signal ── */
+  --primary: #2ee6c8;
+  --primary-dim: #14a693;
+  --primary-glow: rgba(46, 230, 200, .18);
+  --amber: #ffb340;
+  --danger: #ff5f6d;
+  --violet: #a98bfa;
+  --sky: #4fb8f5;
+
+  /* ── status (one source of truth) ── */
+  --s-success: #2ee6c8;
+  --s-mine: #4fb8f5;
+  /* Group cap is adjacent to `mine` (both are "this account", not "dead code")
+   * but must stay distinguishable at a glance, so it takes the violet-blue
+   * neighbour rather than a second shade of sky. */
+  --s-group_limit: #7aa2f7;
+  --s-untried: #ffb340;
+  /* Garena-side failure: deliberately grey-blue, never red — nothing is wrong
+   * with the code and the row must not read as a dead verdict. */
+  --s-sys_error: #8b9fb0;
+  --s-expired: #6b8480;
+  --s-exhausted: #c89b5a;
+  --s-gift_bug: #a98bfa;
+  --s-invalid: #ff5f6d;
+
+  --r: 3px;
+  --r-lg: 5px;
+  --gap: 14px;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.df *, .df *::before, .df *::after { box-sizing: border-box; }
+/* `hidden` must win over any component display rule. The descendant form alone
+ * misses elements that are themselves the `.df` root — the command palette and
+ * the toast stack sit directly in the shadow root, so `hidden` silently lost to
+ * their own `display: grid` and the palette stayed over the whole page. */
+.df[hidden], .df [hidden] { display: none !important; }
+.df button, .df input, .df select, .df textarea { font: inherit; color: inherit; }
+.df :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.df ::-webkit-scrollbar { width: 10px; height: 10px; }
+.df ::-webkit-scrollbar-track { background: var(--sunken); }
+.df ::-webkit-scrollbar-thumb { background: #1d2f35; border: 2px solid var(--sunken); border-radius: 6px; }
+.df ::-webkit-scrollbar-thumb:hover { background: #2a454d; }
+
+/* ── stencil label ─────────────────────────────────────────────────────── */
+.df .stencil {
+  margin: 0;
+  color: var(--ink-mute);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+/* ── corner-ticked slab: the signature shape ───────────────────────────── */
+.df .slab {
+  position: relative;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.022), transparent 70px),
+    var(--panel);
+}
+.df .slab::before,
+.df .slab::after {
+  content: "";
+  position: absolute;
+  width: 7px; height: 7px;
+  border-color: var(--primary);
+  opacity: .5;
+  pointer-events: none;
+}
+.df .slab::before { top: -1px; left: -1px; border-top: 1px solid; border-left: 1px solid; }
+.df .slab::after { bottom: -1px; right: -1px; border-bottom: 1px solid; border-right: 1px solid; }
+
+/* ── buttons ───────────────────────────────────────────────────────────── */
+.df .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.df .btn:hover { border-color: var(--primary-dim); color: var(--ink); background: #14232a; }
+.df .btn:active { transform: translateY(1px); }
+.df .btn[disabled] { opacity: .4; cursor: not-allowed; }
+.df .btn.primary {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--primary), var(--primary-dim));
+  color: #04120f;
+  font-weight: 700;
+}
+.df .btn.primary:hover { filter: brightness(1.1); background: linear-gradient(180deg, var(--primary), var(--primary-dim)); }
+.df .btn.danger { border-color: #4a2228; color: #ff9aa3; }
+.df .btn.danger:hover { border-color: var(--danger); color: var(--danger); background: #1d1013; }
+.df .btn.sm { height: 26px; padding: 0 9px; font-size: 11px; }
+.df .btn.icon { width: 32px; padding: 0; justify-content: center; font-size: 15px; }
+.df .btn.icon.sm { width: 26px; }
+.df .link {
+  border: 0; padding: 2px 4px; background: none;
+  color: var(--primary); cursor: pointer;
+  font-size: 11.5px; font-weight: 600;
+}
+.df .link:hover { text-decoration: underline; }
+
+/* ── inputs ────────────────────────────────────────────────────────────── */
+.df .input, .df select, .df textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--sunken);
+  outline: 0;
+  font-size: 12.5px;
+}
+.df .input:focus, .df select:focus, .df textarea:focus {
+  border-color: var(--primary-dim);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+.df textarea { min-height: 120px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
+.df select { cursor: pointer; }
+.df .field { display: grid; gap: 5px; }
+.df .field > .stencil { margin-bottom: 1px; }
+.df .search { position: relative; }
+.df .search .input { padding-left: 30px; }
+.df .search::before {
+  content: "⌕";
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-mute); font-size: 15px;
+}
+
+/* ── KPI ───────────────────────────────────────────────────────────────── */
+.df .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+.df .kpi { position: relative; padding: 12px 13px; border: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+.df .kpi::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 2px;
+  background: var(--accent, var(--primary));
+}
+.df .kpi b {
+  display: block;
+  color: var(--accent, var(--primary));
+  font-size: 27px; font-weight: 700; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.df .kpi span { display: block; margin-top: 3px; color: var(--ink-mute); font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+.df .kpi small { display: block; margin-top: 5px; color: var(--ink-mute); font-size: 10.5px; }
+.df .kpi.ok { --accent: var(--s-success); }
+.df .kpi.share { --accent: var(--sky); }
+.df .kpi.warn { --accent: var(--amber); }
+.df .kpi.preset { --accent: var(--violet); }
+
+/* ── distribution bars ─────────────────────────────────────────────────── */
+.df .bars { display: grid; gap: 7px; }
+.df .bar-row { display: grid; grid-template-columns: 96px 1fr 46px; align-items: center; gap: 10px; }
+.df .bl { color: var(--ink-dim); font-size: 11.5px; }
+.df .bt { height: 7px; border-radius: 2px; background: var(--sunken); overflow: hidden; }
+.df .fill { display: block; height: 100%; background: var(--primary); transition: width .45s cubic-bezier(.2,.8,.3,1); }
+.df .bn { color: var(--ink); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.df .fill.s-success { background: var(--s-success); }
+.df .fill.s-mine { background: var(--s-mine); }
+.df .fill.s-group_limit { background: var(--s-group_limit); }
+.df .fill.s-untried { background: var(--s-untried); }
+.df .fill.s-sys_error { background: var(--s-sys_error); }
+.df .fill.s-expired { background: var(--s-expired); }
+.df .fill.s-exhausted { background: var(--s-exhausted); }
+.df .fill.s-gift_bug { background: var(--s-gift_bug); }
+.df .fill.s-invalid { background: var(--s-invalid); }
+
+/* ── status pill ───────────────────────────────────────────────────────── */
+.df .pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--ink-mute)) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c, var(--ink-mute)) 12%, transparent);
+  color: var(--c, var(--ink-dim));
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+}
+.df .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.df .pill.p-success { --c: var(--s-success); }
+.df .pill.p-mine { --c: var(--s-mine); }
+.df .pill.p-group_limit { --c: var(--s-group_limit); }
+.df .pill.p-untried { --c: var(--s-untried); }
+.df .pill.p-sys_error { --c: var(--s-sys_error); }
+.df .pill.p-expired { --c: var(--s-expired); }
+.df .pill.p-exhausted { --c: var(--s-exhausted); }
+.df .pill.p-gift_bug { --c: var(--s-gift_bug); }
+.df .pill.p-invalid { --c: var(--s-invalid); }
+
+/* ── table ─────────────────────────────────────────────────────────────── */
+.df .grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.df .grid th {
+  position: sticky; top: 0; z-index: 2;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink-mute);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+.df .grid td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.df .grid tbody tr:hover td { background: rgba(46,230,200,.045); }
+.df .grid tbody tr.sel td { background: rgba(79,184,245,.09); }
+.df .grid .num { font-variant-numeric: tabular-nums; text-align: right; }
+.df .grid .note { max-width: 260px; color: var(--ink-dim); font-size: 11.5px; }
+.df .grid .empty { padding: 34px 10px; color: var(--ink-mute); text-align: center; }
+.df .mono { font-family: var(--mono); font-size: 12px; letter-spacing: .02em; }
+.df .row-acts { text-align: right; white-space: nowrap; }
+.df .grid tbody tr .row-acts .link { opacity: 0; transition: opacity .12s; }
+.df .grid tbody tr:hover .row-acts .link, .df .grid tbody tr:focus-within .row-acts .link { opacity: 1; }
+.df .tablewrap { border: 1px solid var(--line); background: var(--panel); overflow: auto; }
+
+/* ── callout ───────────────────────────────────────────────────────────── */
+.df .callout {
+  display: flex; gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--primary)) 30%, transparent);
+  border-left: 2px solid var(--c, var(--primary));
+  background: color-mix(in srgb, var(--c, var(--primary)) 7%, transparent);
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+.df .callout b { color: var(--ink); }
+.df .callout.warn { --c: var(--amber); }
+.df .callout.preset { --c: var(--violet); }
+.df .callout.danger { --c: var(--danger); }
+.df .callout .ico { flex: none; color: var(--c, var(--primary)); font-size: 14px; line-height: 1.3; }
+
+/* ── misc ──────────────────────────────────────────────────────────────── */
+.df .muted { color: var(--ink-mute); font-size: 11.5px; }
+.df .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.df .spacer { flex: 1 1 auto; }
+.df .sec { display: grid; gap: 10px; }
+.df h3.sec-h { margin: 0; color: var(--ink); font-size: 12.5px; font-weight: 700; letter-spacing: .02em; }
+.df h3.sec-h small { margin-left: 6px; color: var(--ink-mute); font-size: 11px; font-weight: 600; }
+.df .divider { height: 1px; background: var(--line-soft); }
+.df .chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--sunken);   /* explicit: a <button>.chip would otherwise keep
+                                * Chrome's pale default and vanish on dark UI */
+  color: var(--ink-dim); font-size: 10.5px; font-weight: 600;
+}
+/* Only the interactive chip gets the 32px floor: a plain .chip is a static
+ * label (status legend, meta row) and forcing it taller just adds dead space. */
+.df button.chip { cursor: pointer; min-height: 32px; padding: 3px 11px; font-size: 11.5px; }
+.df button.chip:hover { border-color: var(--primary-dim); color: var(--ink); }
+.df .chip.on { border-color: var(--primary-dim); color: var(--primary); background: var(--primary-glow); }
+
+/* ── progress ──────────────────────────────────────────────────────────── */
+.df .prog { height: 5px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.df .prog i { display: block; height: 100%; background: linear-gradient(90deg, var(--primary-dim), var(--primary)); transition: width .3s; }
+.df .live { display: grid; gap: 4px; max-height: 190px; padding: 10px; border: 1px solid var(--line); background: var(--sunken); overflow: auto; font-family: var(--mono); font-size: 11.5px; }
+.df .live div { color: var(--ink-dim); }
+.df .live div.ok { color: var(--s-success); }
+.df .live div.err { color: var(--danger); }
+.df .live div.warn { color: var(--amber); }
+
+/* ── toasts ────────────────────────────────────────────────────────────── */
+.df .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; display: grid; gap: 7px; justify-items: end; pointer-events: none; }
+.df .toast {
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--primary);
+  border-radius: var(--r);
+  background: var(--raised);
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  color: var(--ink);
+  font-size: 12px; font-weight: 500;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity .2s, transform .2s;
+}
+.df .toast.in { opacity: 1; transform: none; }
+.df .toast.ok { border-left-color: var(--s-success); }
+.df .toast.err { border-left-color: var(--danger); }
+.df .toast.warn { border-left-color: var(--amber); }
+
+/* ── skeleton ──────────────────────────────────────────────────────────── */
+.df .skel { border-radius: var(--r); background: linear-gradient(90deg, #0e181c 25%, #16242a 50%, #0e181c 75%); background-size: 200% 100%; animation: df-shim 1.3s infinite; }
+@keyframes df-shim { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .df *, .df *::before, .df *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* components.css — the view layer of the design system.
+ *
+ * theme.css owns tokens and primitives; this file owns every class the view
+ * renderers in panel.js actually emit. The two are concatenated at build time
+ * into one theme.css, so a class defined here is available on all four
+ * surfaces (drawer shadow root, full page, popup, options).
+ *
+ * Rule of thumb: if panel.js writes a class into markup, it gets a rule here.
+ * A class with no rule silently renders with browser defaults, which on this
+ * dark theme means an unreadable white-on-white control.
+ */
+
+/* ── action buttons (the workhorse; .btn is the formal variant) ─────────── */
+.df .act {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 30px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--raised); color: var(--ink);
+  cursor: pointer; font: 600 11.5px var(--sans); letter-spacing: .01em;
+  transition: border-color .14s, background .14s, color .14s;
+  white-space: nowrap;
+}
+.df .act:hover:not([disabled]) { border-color: var(--primary-dim); background: #16252b; }
+.df .act:active:not([disabled]) { transform: translateY(1px); }
+.df .act[disabled] { opacity: .38; cursor: not-allowed; }
+.df .act.primary { border-color: var(--primary-dim); background: var(--primary); color: #04100e; }
+.df .act.primary:hover:not([disabled]) { background: #4af0d6; border-color: var(--primary); }
+.df .act.danger { border-color: #5c2530; color: var(--danger); }
+.df .act.danger:hover:not([disabled]) { background: #241216; border-color: var(--danger); }
+.df .act.ghost { border-color: transparent; background: transparent; color: var(--ink-dim); }
+.df .act.ghost:hover:not([disabled]) { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.df .act.tiny { min-height: 32px; padding: 0 11px; font-size: 11.5px; }
+.df .btnrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.df .page-acts { display: grid; gap: 6px; }
+
+/* ── cards ─────────────────────────────────────────────────────────────── */
+.df .card {
+  margin-bottom: var(--gap); padding: 13px 14px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.df .card-hd {
+  display: flex; align-items: baseline; gap: 9px;
+  margin: -2px 0 11px; padding-bottom: 9px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.df .card-hd h3 {
+  margin: 0; color: var(--ink);
+  font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+}
+.df .card-hd > :last-child { margin-left: auto; }
+.df .card-hd .muted { font-size: 10.5px; }
+.df .two { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+.df .tight { margin: -4px 0 10px; font-size: 11px; }
+
+/* ── callouts: one shape, three intents ────────────────────────────────── */
+.df .cta, .df .info-box, .df .warn-box {
+  margin-bottom: var(--gap); padding: 11px 13px;
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r);
+  background: var(--panel); font-size: 12px;
+}
+.df .cta {
+  display: flex; align-items: center; gap: 11px;
+  border-left-color: var(--primary);
+  background: linear-gradient(90deg, rgba(46,230,200,.07), transparent 60%);
+}
+.df .cta.done { border-left-color: var(--s-mine); background: linear-gradient(90deg, rgba(79,184,245,.07), transparent 60%); }
+.df .cta > div { flex: 1; }
+.df .cta .muted { display: block; margin-top: 2px; font-size: 11px; }
+.df .cta .act { flex: none; }
+.df .info-box { border-left-color: var(--sky); }
+.df .warn-box { border-left-color: var(--amber); }
+.df .info-box b, .df .warn-box b { display: block; margin-bottom: 3px; }
+.df .info-box p, .df .warn-box p { margin: 0 0 8px; color: var(--ink-dim); font-size: 11.5px; }
+.df .info-box p:last-child, .df .warn-box p:last-child { margin-bottom: 0; }
+
+/* ── activity feed ─────────────────────────────────────────────────────── */
+.df .feed { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.df .feed li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 2px; border-bottom: 1px solid var(--line-soft);
+}
+.df .feed li:last-child { border-bottom: 0; }
+.df .feed .mono { flex: 1; font-size: 11.5px; }
+.df .ago { color: var(--ink-mute); font: 500 10.5px var(--mono); white-space: nowrap; }
+
+/* ── empty states ──────────────────────────────────────────────────────── */
+.df .empty { padding: 26px 14px; color: var(--ink-mute); text-align: center; }
+.df .empty .ei { margin-bottom: 7px; color: var(--line); font-size: 26px; line-height: 1; }
+.df .empty p { margin: 0 0 10px; font-size: 12px; }
+.df .empty .act { margin: 0 3px; }
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+.df .tbl-wrap {
+  margin-bottom: 11px; overflow-x: auto;
+  border: 1px solid var(--line-soft); border-radius: var(--r);
+}
+.df .tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.df .tbl th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 7px 9px; border-bottom: 1px solid var(--line);
+  background: var(--sunken); color: var(--ink-mute);
+  font: 800 9.5px var(--sans); letter-spacing: .09em; text-align: left; text-transform: uppercase;
+}
+.df .tbl td { padding: 6px 9px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.df .tbl tr:last-child td { border-bottom: 0; }
+.df .tbl tbody tr:hover { background: #0e181d; }
+.df .tbl .cbx { width: 28px; text-align: center; }
+.df .tbl .rowacts { width: 1%; text-align: right; white-space: nowrap; }
+.df .tbl .rowacts .act { margin-left: 4px; }
+.df .pick, .df .pick-all { accent-color: var(--primary); cursor: pointer; }
+
+/* ── filters ───────────────────────────────────────────────────────────── */
+.df .fq, .df .fstatus, .df .fsort {
+  min-height: 30px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink); font-size: 11.5px;
+}
+.df .fq:focus, .df .fstatus:focus, .df .fsort:focus { border-color: var(--primary-dim); outline: 0; }
+.df .chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+
+/* ── run controls ──────────────────────────────────────────────────────── */
+.df .fld { display: grid; gap: 3px; }
+.df .fld > span {
+  color: var(--ink-mute);
+  font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+}
+.df .fld input {
+  min-height: 29px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink); font: 600 12px var(--mono);
+}
+.df .fld input:focus { border-color: var(--primary-dim); outline: 0; }
+.df .runline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: var(--gap); }
+.df .runline .spacer { flex: 1; }
+.df .qcount { font: 600 10.5px var(--mono); }
+
+/* ── progress ──────────────────────────────────────────────────────────── */
+.df .prog-card {
+  margin-bottom: var(--gap); padding: 12px 13px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+}
+.df .prog { height: 5px; overflow: hidden; border-radius: 99px; background: var(--sunken); }
+.df .prog i {
+  display: block; width: 0; height: 100%;
+  background: linear-gradient(90deg, var(--primary-dim), var(--primary));
+  transition: width .3s ease-out;
+}
+.df .prog-txt { margin: 7px 0 0; font: 500 11px var(--mono); }
+.df .prog-eta { float: right; color: var(--ink-mute); font: 500 10.5px var(--mono); }
+.df .tally { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.df .log {
+  max-height: 148px; margin: 9px 0 0; padding: 8px 9px; overflow: auto;
+  border: 1px solid var(--line-soft); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink-dim);
+  font: 500 10.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all;
+}
+
+/* ── preset cards ──────────────────────────────────────────────────────── */
+.df .pgrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
+.df .pcard {
+  display: grid; gap: 6px; padding: 9px 10px;
+  border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
+}
+.df .pcard:hover { border-color: var(--line); }
+.df .pc-hd { display: flex; align-items: center; gap: 7px; }
+.df .pc-hd b { flex: 1; font-size: 12px; }
+.df .pc-code {
+  display: block; padding: 5px 7px; user-select: all;
+  border: 1px dashed var(--line); border-radius: var(--r);
+  background: var(--void); font-size: 11.5px;
+}
+.df .pc-ft { display: flex; align-items: center; gap: 7px; }
+.df .pc-ft .muted { flex: 1; font-size: 10px; }
+.df .tag {
+  padding: 1px 6px; border: 1px solid var(--line); border-radius: 99px;
+  color: var(--ink-mute);
+  font: 700 9px var(--sans); letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* ── share textareas ───────────────────────────────────────────────────── */
+.df .share-gift, .df .share-preset {
+  width: 100%; padding: 8px 9px; resize: vertical;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink-dim); font: 500 11px/1.6 var(--mono);
+}
+.df .share-gift:focus, .df .share-preset:focus { border-color: var(--primary-dim); outline: 0; }
+
+/* ── history timeline ──────────────────────────────────────────────────── */
+.df .tline { margin: 0; padding: 0; list-style: none; }
+.df .tline li { position: relative; display: flex; gap: 10px; padding-bottom: 13px; }
+.df .tline .pi { position: relative; flex: none; width: 9px; margin-top: 4px; }
+.df .tline .pi::before {
+  content: ''; position: absolute; left: 1px; top: 1px;
+  width: 7px; height: 7px; border-radius: 99px;
+  background: var(--line); box-shadow: 0 0 0 2px var(--bg);
+}
+.df .tline .pi::after {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: -13px;
+  width: 1px; background: var(--line-soft);
+}
+.df .tline li:last-child .pi::after { display: none; }
+.df .tline li.st-success .pi::before { background: var(--s-success); }
+.df .tline li.st-mine .pi::before { background: var(--s-mine); }
+.df .tline li.st-untried .pi::before { background: var(--s-untried); }
+.df .tline li.st-expired .pi::before { background: var(--s-expired); }
+.df .tline li.st-exhausted .pi::before { background: var(--s-exhausted); }
+.df .tline li.st-gift_bug .pi::before { background: var(--s-gift_bug); }
+.df .tline li.st-invalid .pi::before { background: var(--s-invalid); }
+.df .tl-body { flex: 1; min-width: 0; }
+.df .tl-top { display: flex; align-items: center; gap: 8px; }
+.df .tl-top .mono { font-size: 11.5px; }
+.df .tl-top .ago { margin-left: auto; }
+.df .tl-body .muted { display: block; margin-top: 2px; font-size: 10.5px; word-break: break-word; }
+
+/* ── command palette (Ctrl+K) ──────────────────────────────────────────── */
+.df.palette-wrap, .df .palette-wrap {
+  position: fixed; inset: 0; z-index: 2147483646;
+  display: grid; place-items: start center; padding-top: 12vh;
+  background: rgba(2, 6, 8, .62); backdrop-filter: blur(2px);
+}
+.df .palette {
+  width: min(520px, 92vw); overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: 0 24px 70px rgba(0, 0, 0, .66);
+}
+.df .pq {
+  width: 100%; padding: 13px 15px;
+  border: 0; border-bottom: 1px solid var(--line-soft);
+  background: transparent; color: var(--ink); font: 500 13.5px var(--sans);
+}
+.df .pq:focus { outline: 0; }
+.df .phits { max-height: 320px; overflow: auto; }
+.df .palette-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 15px; border: 0; background: transparent;
+  color: var(--ink); cursor: pointer; font: 500 12px var(--sans); text-align: left;
+}
+.df .palette-btn.on, .df .palette-btn:hover { background: #16242a; }
+.df .palette-btn .go { margin-left: auto; color: var(--ink-mute); font: 500 10px var(--mono); }
+.df .pnone { padding: 18px 15px; color: var(--ink-mute); font-size: 12px; text-align: center; }
+.df .pfoot {
+  display: flex; gap: 9px; padding: 8px 15px;
+  border-top: 1px solid var(--line-soft); background: var(--sunken);
+  color: var(--ink-mute); font-size: 10.5px;
+}
+.df .pfoot kbd, .df .kbd-hint kbd {
+  padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--raised); color: var(--ink-dim); font: 600 9.5px var(--mono);
+}
+.df .kbd-hint { color: var(--ink-mute); font-size: 10.5px; }
+
+/* ── toast host ────────────────────────────────────────────────────────── */
+.df.toast-wrap, .df .toast-wrap {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+  display: grid; gap: 7px; pointer-events: none;
+}
+
+/* ── small shared pieces ───────────────────────────────────────────────── */
+.df .close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border: 1px solid transparent; border-radius: var(--r);
+  background: transparent; color: var(--ink-mute); cursor: pointer; font-size: 15px;
+}
+.df .close:hover { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.df .dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: var(--primary); }
+
+/* ── narrow surfaces: two-up grids collapse before text shrinks ────────── */
+@media (max-width: 560px) {
+  .df .two { grid-template-columns: 1fr; }
+  .df .pgrid { grid-template-columns: 1fr; }
+}
+
+/* Square icon-only button. Used by page headers where a label would crowd. */
+.df .act.icon-only { width: 34px; padding: 0; font-size: 14px; }
+.df .act.tiny.icon-only { width: 32px; font-size: 13px; }
+
+/* ── .ico — square icon button, the drawer header and row-action workhorse ──
+ * Defined here rather than next to .callout .ico (which is a decorative glyph,
+ * not a control) so every <button class="ico"> gets real chrome instead of
+ * Chrome's pale default. */
+/* Comfortable hit target. 32px is the floor for every control in the drawer:
+ * measured on the live panel, 174 controls sat below it and mis-taps on the
+ * row actions were the most common complaint. */
+.df button.ico, .df .ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--raised); color: var(--ink-dim);
+  cursor: pointer; font-size: 14px; line-height: 1;
+  transition: border-color .14s, background .14s, color .14s;
+}
+.df button.ico:hover, .df .ico:hover { border-color: var(--primary-dim); background: #16252b; color: var(--ink); }
+.df button.ico:active { transform: translateY(1px); }
+.df .ico.tiny { width: 32px; height: 32px; font-size: 12px; }
+.df .ico.close:hover { border-color: var(--danger); color: var(--danger); }
+/* The decorative glyph inside a callout keeps its original treatment. */
+.df .callout .ico, .df .info-box .ico, .df .warn-box .ico {
+  width: auto; height: auto; border: 0; background: none; cursor: default;
+}

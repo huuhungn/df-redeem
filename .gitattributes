@@ -1,0 +1,14 @@
+# The build writes LF. Without this, Git's autocrlf on Windows rewrites every
+# generated file to CRLF on checkout, so the next `node build.js` reports the
+# whole of extension/ and dist/ as modified even when nothing changed. Pinning
+# them to LF keeps build output diffable: a dirty file then means a real change.
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.ico binary

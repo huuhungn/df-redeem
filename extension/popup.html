@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Auto Redeem</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  html, body { margin: 0; width: 320px; background: var(--void); }
+  .pop { padding: 14px; }
+  .pop-hd { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .pop-hd h1 { margin: 0; font-size: 14px; }
+  .pop-hd .ver { color: var(--ink-mute); font: 600 10px var(--mono); }
+  .pop .kpis { grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
+  .pop .kpi b { font-size: 22px; }
+  .pop .kpi i {
+    display: block; margin-top: 2px;
+    color: var(--ink-mute); font-style: normal; font-size: 9.5px; line-height: 1.35;
+  }
+  .pop .btnrow { display: grid; gap: 6px; }
+  .pop .act { justify-content: flex-start; }
+  /* each action explains itself — the labels alone were ambiguous */
+  .pop .act small {
+    display: block; margin-top: 1px;
+    color: var(--ink-mute); font-size: 9.5px; font-weight: 500; line-height: 1.3;
+  }
+  .pop .act.primary small { color: color-mix(in srgb, #04231f 72%, transparent); }
+  .pop .act { display: block; text-align: left; padding: 8px 11px; }
+  .pop .foot { margin-top: 11px; color: var(--ink-mute); font-size: 10.5px; }
+</style>
+</head>
+<body class="df">
+  <div class="pop">
+    <div class="pop-hd"><h1>Auto Redeem</h1><span class="ver">v3.1.3</span></div>
+    <div class="kpis" id="k"></div>
+    <div class="btnrow">
+      <button class="act primary" id="open-app">Mở bảng đầy đủ<small>Xem kho, chạy đổi, lịch sử trong tab riêng</small></button>
+      <button class="act" id="open-drawer">Mở bảng trên tab này<small>Chỉ dùng khi đang ở trang đổi code Garena</small></button>
+      <button class="act" id="open-redeem">Tới trang đổi code<small>Mở redeem.df.garena.sg và đăng nhập</small></button>
+      <button class="act" id="copy-share">Copy danh sách chia sẻ<small>Sao chép mã đã đổi xong để gửi bạn bè</small></button>
+      <button class="act ghost" id="open-options">Cài đặt</button>
+    </div>
+    <div class="foot" id="foot"></div>
+  </div>
+<script src="popup.js"></script>
+</body>
+</html>

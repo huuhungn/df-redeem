@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delta Force Auto Redeem</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="df page">
+  <div class="page-shell">
+    <aside class="side">
+      <div class="side-brand">
+        <div class="stencil">Delta Force</div>
+        <h1>Auto Redeem</h1>
+        <span class="ver">v3.1.3</span>
+      </div>
+      <nav class="side-nav"></nav>
+      <div class="side-ft">
+        <button class="act tiny" id="open-redeem">Mở trang đổi code →</button>
+        <button class="act tiny ghost" id="open-options">Cài đặt</button>
+      </div>
+    </aside>
+    <main class="page-main">
+      <header class="page-hd">
+        <div>
+          <h2 class="page-title">Tổng quan</h2>
+          <p class="page-hint muted"></p>
+        </div>
+        <div class="page-acts">
+          <button class="act ghost icon-only" id="p-refresh" title="Tải lại" aria-label="Tải lại">⟳</button>
+        </div>
+      </header>
+      <div id="page-view"></div>
+    </main>
+  </div>
+  <div class="toast-wrap" id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+/* app.css — full-page shell. theme.css supplies the design system. */
+html, body { margin: 0; min-height: 100%; background: var(--void); }
+.page { background: var(--void); }
+.page-shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+
+.side {
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 20px 14px; border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel), var(--bg));
+  position: sticky; top: 0; height: 100vh;
+}
+.side-brand h1 { margin: 2px 0 0; font-size: 16px; letter-spacing: -.01em; }
+.side-brand .ver { color: var(--ink-mute); font: 600 10px var(--mono); }
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
+.side-nav button {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; border: 0; border-radius: var(--r);
+  background: transparent; color: var(--ink-dim);
+  cursor: pointer; text-align: left; font: 600 12.5px var(--sans);
+}
+.side-nav button:hover { background: var(--raised); color: var(--ink); }
+.side-nav button.on { background: var(--primary-glow); color: var(--primary); box-shadow: inset 2px 0 0 var(--primary); }
+.side-nav .vi { width: 16px; font-size: 13px; text-align: center; }
+.side-nav .badge {
+  margin-left: auto; padding: 1px 6px; border-radius: 99px;
+  background: var(--s-untried); color: #1a1205; font: 800 10px var(--mono);
+}
+.side-ft { margin-top: auto; display: grid; gap: 6px; }
+
+.page-main { min-width: 0; padding: 0 0 40px; }
+.page-hd {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 22px 26px 16px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 2;
+  background: color-mix(in srgb, var(--void) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+.page-title { margin: 0; font-size: 19px; letter-spacing: -.015em; }
+.page-hint { margin: 2px 0 0; font-size: 11.5px; }
+
+/* On a real page the views get room to breathe: two columns where it helps. */
+#page-view .pad { max-width: 1180px; padding: 22px 26px; }
+#page-view .kpis { grid-template-columns: repeat(4, 1fr); }
+#page-view .kpi b { font-size: 30px; }
+@media (min-width: 1180px) {
+  #page-view .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: var(--gap); align-items: start; }
+}
+#page-view .pgrid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+@media (max-width: 880px) {
+  .page-shell { grid-template-columns: 1fr; }
+  .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .side-nav { flex-direction: row; flex-wrap: wrap; }
+  .side-ft { margin: 0; grid-auto-flow: column; }
+}
