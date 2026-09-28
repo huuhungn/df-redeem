@@ -12,7 +12,7 @@ var DFRedeemGarena = (function dfRedeemGarenaModule(root) {
   const ERROR_CODES = {
   0: { status: 'SUCCESS', label: 'Thành công', detail: 'Đổi code thành công.' },
   400054: { status: 'INVALID', label: 'Không hợp lệ', detail: 'Code không tồn tại hoặc sai ký tự.' },
-  400067: { status: 'LIMIT_REACHED', label: 'Đã nhận nhóm này', detail: 'Tài khoản đã đạt giới hạn nhận của nhóm code này.' },
+  400067: { status: 'LIMIT_REACHED', label: 'Chạm giới hạn nhóm', detail: 'Tài khoản bạn đã đạt giới hạn nhận của nhóm quà này — mã vẫn còn tốt, người khác vẫn đổi được.' },
   400068: { status: 'EXPIRED', label: 'Hết hạn', detail: 'Code đã quá thời hạn sử dụng.' },
   /* Observed live on redeem.df.garena.sg: "The end time has passed". Distinct
    * code from 400068 but the same outcome — the campaign window closed. */
@@ -26,12 +26,16 @@ var DFRedeemGarena = (function dfRedeemGarenaModule(root) {
   10: { status: 'RATE_LIMITED', label: 'Bị siết tốc độ', detail: 'Gửi quá nhanh, Garena chặn tạm.' },
   401009: { status: 'RATE_LIMITED', label: 'Bị siết tốc độ', detail: 'Gửi quá nhiều yêu cầu, Garena chặn tạm.' },
   401010: { status: 'RATE_LIMITED', label: 'Bị siết tốc độ', detail: 'Gửi quá nhiều yêu cầu, Garena chặn tạm.' },
+  /* Garena's generic server-side failure. Observed repeatedly on codes that are
+   * neither dead nor redeemed: it says nothing about the code, only that their
+   * backend refused to answer. Must never be recorded as a verdict. */
+  51: { status: 'SYSTEM_ERROR', label: 'Garena lỗi hệ thống', detail: 'Garena trả lỗi hệ thống 51 — chưa kết luận được gì về mã này.' },
 };
 
 /** Statuses that mean "stop the whole run, a human must act". */
 const FATAL = new Set(['NOT_LOGGED_IN', 'VERIFY', 'SCRIPT_ERROR']);
 /** Statuses worth retrying the same code later. */
-const RETRYABLE = new Set(['TEMP_ERROR', 'RATE_LIMITED', 'NO_RESPONSE', 'NETWORK']);
+const RETRYABLE = new Set(['TEMP_ERROR', 'RATE_LIMITED', 'NO_RESPONSE', 'NETWORK', 'SYSTEM_ERROR']);
 /** Statuses where trying an OCR variant makes sense. */
 const VARIANT_WORTHY = new Set(['INVALID']);
 /** Statuses that prove the code itself is real, even if we gained nothing. */
@@ -39,7 +43,7 @@ const CODE_IS_REAL = new Set(['SUCCESS', 'LIMIT_REACHED', 'EXPIRED', 'USED', 'PR
 
 const STATUS_LABELS = {
   SUCCESS: 'Thành công',
-  LIMIT_REACHED: 'Đã nhận nhóm này',
+  LIMIT_REACHED: 'Chạm giới hạn nhóm',
   EXPIRED: 'Hết hạn',
   USED: 'Đã dùng',
   PRESENT_ERROR: 'Lỗi quà',
@@ -49,6 +53,7 @@ const STATUS_LABELS = {
   NOT_LOGGED_IN: 'Chưa đăng nhập',
   RATE_LIMITED: 'Bị siết tốc độ',
   TEMP_ERROR: 'Lỗi tạm thời',
+  SYSTEM_ERROR: 'Garena lỗi hệ thống',
   NETWORK: 'Lỗi mạng',
   NO_RESPONSE: 'Không thấy phản hồi',
   SKIPPED: 'Đã bỏ qua',
@@ -126,6 +131,9 @@ function classifyText(message) {
   if (/captcha|xác minh|verification|verify/.test(t)) return { status: 'VERIFY', trusted: false };
   if (/đăng nhập|login|log in|sign in|hết phiên|session/.test(t)) return { status: 'NOT_LOGGED_IN', trusted: false };
   if (/quá nhanh|too fast|rate|frequent|thử lại sau/.test(t)) return { status: 'RATE_LIMITED', trusted: false };
+  /* Garena renders error 51 as a bare "system error" string. Matched after the
+   * specific verdicts so a real error code always wins. */
+  if (/error_hint_51\b|lỗi hệ thống|system error|hệ thống đang bận/.test(t)) return { status: 'SYSTEM_ERROR', trusted: false };
   if (/lỗi mạng|network|timeout|time out/.test(t)) return { status: 'NETWORK', trusted: false };
   if (/^ok$|thành công|success|congratulation/.test(t)) return { status: 'SUCCESS', trusted: false };
   return { status: 'OTHER', trusted: false };
@@ -153,12 +161,19 @@ function looksLikeRedeemBody(body) {
  */
 const VAULT_STATUS = {
   SUCCESS: 'success',
-  LIMIT_REACHED: 'mine',      /* the account already holds this reward group */
+  /* 400067 is a cap on THIS account's reward group, not a fact about the code:
+   * another account can still redeem it. Kept separate from `mine` so the UI can
+   * say so and the sharer never treats it as a dead code. */
+  LIMIT_REACHED: 'group_limit',
   USED: 'mine',               /* 400069 is this account's prior redemption, not global exhaustion */
   EXPIRED: 'expired',
   PRESENT_ERROR: 'gift_bug',
   INVALID: 'invalid',
   REGION: 'invalid',          /* unusable for this account's server */
+  /* Error 51 is Garena failing, not a verdict. Recording it keeps the code out
+   * of `untried` (so a bulk run does not silently retry it forever) while
+   * flagging it as "ask again later" rather than dead. */
+  SYSTEM_ERROR: 'sys_error',
 };
 
 /**

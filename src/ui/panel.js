@@ -26,7 +26,10 @@ function createPanel(options) {
   const G = root.DFRedeemGarena;   /* verdict labels + verdict→vault status map */
   const S = root.DFRedeemSync;     /* community merge helper; absent in bare tests */
 
-  const PAGE_SIZE = 50;
+  /* 25, not 50: the drawer is ~515px wide and a 50-row page ran ~2000px tall,
+   * which meant constant scrolling to reach the pager. Halving the page keeps a
+   * page within a couple of screens at the default drawer height. */
+  const PAGE_SIZE = 25;
   const VIEWS = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
   const VIEW_LABELS = {
     dashboard: 'Tổng quan', library: 'Kho code', run: 'Chạy đổi',
@@ -45,16 +48,19 @@ function createPanel(options) {
   };
   const STATUS_LABELS = {
     untried: 'Chưa thử', success: 'Thành công', expired: 'Hết hạn',
-    exhausted: 'Hết lượt', mine: 'Đã nhận', gift_bug: 'Lỗi quà',
+    exhausted: 'Hết lượt', mine: 'Đã nhận', group_limit: 'Chạm giới hạn nhóm',
+    sys_error: 'Garena lỗi', gift_bug: 'Lỗi quà',
     invalid: 'Không tồn tại',
   };
-  const STATUS_ORDER = ['success', 'mine', 'untried', 'expired', 'exhausted', 'gift_bug', 'invalid'];
+  const STATUS_ORDER = ['success', 'mine', 'group_limit', 'untried', 'sys_error', 'expired', 'exhausted', 'gift_bug', 'invalid'];
   const STATUS_HINT = {
     untried: 'Chưa gửi lên Garena lần nào.',
     success: 'Garena xác nhận đã nhận quà.',
     expired: 'Mã đã quá hạn sử dụng.',
     exhausted: 'Mã hết lượt đổi trên toàn hệ thống.',
-    mine: 'Tài khoản này đã nhận mã đó rồi.',
+    mine: 'Chính mã này đã được tài khoản của bạn đổi trước đó.',
+    group_limit: 'Tài khoản bạn đã chạm giới hạn của nhóm quà này — mã vẫn còn tốt, người khác vẫn đổi được.',
+    sys_error: 'Garena trả lỗi hệ thống, chưa kết luận được gì. Nên thử lại sau.',
     gift_bug: 'Garena nhận mã nhưng quà không vào — lỗi phía họ.',
     invalid: 'Garena trả về mã không tồn tại.',
   };
@@ -145,6 +151,11 @@ function createPanel(options) {
 
   const toasts = document.createElement('div');
   toasts.className = 'df toast-wrap';
+  /* Toasts are the only feedback for a finished run, a copy, or a sync failure.
+   * Without a live region a screen-reader user gets silence, so announce them
+   * politely — 'assertive' would interrupt the run log mid-sentence. */
+  toasts.setAttribute('role', 'status');
+  toasts.setAttribute('aria-live', 'polite');
 
   const palette = document.createElement('div');
   palette.className = 'df palette-wrap';
@@ -400,6 +411,7 @@ function createPanel(options) {
   /* ── run ───────────────────────────────────────────────────────────────── */
   function renderRun() {
     const untried = untriedCodes();
+    const retryable = cache.codes.filter((r) => r.status === 'sys_error');
     const onRedeemPage = /redeem\.df\.garena\.sg$/.test(location.hostname || '');
     const queued = store.get('queue', '');
 
@@ -415,6 +427,7 @@ function createPanel(options) {
         <div class="runbar">
           <div class="runstat">
             <button class="act tiny" data-act="q-untried">Mã chưa thử (${untried.length})</button>
+            ${retryable.length ? `<button class="act tiny" data-act="q-sys-error">Garena lỗi — thử lại (${retryable.length})</button>` : ''}
             <button class="act tiny" data-act="q-clear">Xoá hàng chờ</button>
           </div>
           <textarea class="queue" rows="7" placeholder="Mỗi dòng một mã. Dán từ bất kỳ đâu — ký tự lạ sẽ được lọc.">${esc(queued)}</textarea>
@@ -964,6 +977,14 @@ function createPanel(options) {
       return;
     }
     if (act === 'q-clear') { const q = $('.queue'); if (q) { q.value = ''; store.del('queue'); updateQueueCount(); } return; }
+    /* Error 51 rows are the ones Garena never gave a verdict for, so they are
+     * the only group worth re-sending wholesale. */
+    if (act === 'q-sys-error') {
+      const q = $('.queue');
+      const rows = cache.codes.filter((r) => r.status === 'sys_error');
+      if (q) { q.value = rows.map((r) => r.code).join('\n'); store.set('queue', q.value); updateQueueCount(); }
+      return toast(rows.length + ' mã lỗi hệ thống đã vào hàng chờ.', 'ok');
+    }
     if (act === 'start') return startRun();
     if (act === 'pause') {
       if (!activeRun) return;

@@ -300,14 +300,19 @@ test('open() renders dashboard with real numbers', async () => {
   assert(kpis[0] > 100, 'success KPI should be >100, got ' + kpis[0]);
   assert(kpis[3] === 20, 'preset KPI should be 20, got ' + kpis[3]);
   const bars = sd.querySelectorAll('.bar-row');
-  assert(bars.length === 7, 'expected 7 status bars, got ' + bars.length);
+  /* 9 = the 7 original statuses plus `group_limit` and `sys_error`, which were
+   * split out of `mine`/`untried` so the panel can distinguish an account cap
+   * and a Garena-side failure from a real verdict. */
+  assert(bars.length === 9, 'expected 9 status bars, got ' + bars.length);
 });
 
-test('library paginates at 50 rows and filters by status', async () => {
+test('library paginates at 25 rows and filters by status', async () => {
   await panel.go('library');
   const sd = panel._shadow;
   let rows = sd.querySelectorAll('tbody tr');
-  assert(rows.length === 50, 'expected 50 rows on page 1, got ' + rows.length);
+  /* 25, halved from 50: a full page used to run ~2000px tall in a ~515px drawer,
+   * so the pager sat far below the fold. */
+  assert(rows.length === 25, 'expected 25 rows on page 1, got ' + rows.length);
   const pager = sd.querySelector('.pager span').textContent;
   assert(/Trang 1\//.test(pager), 'pager text wrong: ' + pager);
 

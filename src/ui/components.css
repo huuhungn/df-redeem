@@ -29,7 +29,7 @@
 .df .act.danger:hover:not([disabled]) { background: #241216; border-color: var(--danger); }
 .df .act.ghost { border-color: transparent; background: transparent; color: var(--ink-dim); }
 .df .act.ghost:hover:not([disabled]) { border-color: var(--line); background: var(--raised); color: var(--ink); }
-.df .act.tiny { min-height: 25px; padding: 0 9px; font-size: 10.5px; }
+.df .act.tiny { min-height: 32px; padding: 0 11px; font-size: 11.5px; }
 .df .btnrow { display: flex; flex-wrap: wrap; gap: 6px; }
 .df .page-acts { display: grid; gap: 6px; }
 
@@ -259,9 +259,9 @@
 /* ── small shared pieces ───────────────────────────────────────────────── */
 .df .close {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 25px; height: 25px;
+  width: 32px; height: 32px;
   border: 1px solid transparent; border-radius: var(--r);
-  background: transparent; color: var(--ink-mute); cursor: pointer; font-size: 14px;
+  background: transparent; color: var(--ink-mute); cursor: pointer; font-size: 15px;
 }
 .df .close:hover { border-color: var(--line); background: var(--raised); color: var(--ink); }
 .df .dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: var(--primary); }
@@ -273,24 +273,27 @@
 }
 
 /* Square icon-only button. Used by page headers where a label would crowd. */
-.df .act.icon-only { width: 30px; padding: 0; font-size: 14px; }
-.df .act.tiny.icon-only { width: 25px; font-size: 12px; }
+.df .act.icon-only { width: 34px; padding: 0; font-size: 14px; }
+.df .act.tiny.icon-only { width: 32px; font-size: 13px; }
 
 /* ── .ico — square icon button, the drawer header and row-action workhorse ──
  * Defined here rather than next to .callout .ico (which is a decorative glyph,
  * not a control) so every <button class="ico"> gets real chrome instead of
  * Chrome's pale default. */
+/* Comfortable hit target. 32px is the floor for every control in the drawer:
+ * measured on the live panel, 174 controls sat below it and mis-taps on the
+ * row actions were the most common complaint. */
 .df button.ico, .df .ico {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 27px; height: 27px; padding: 0;
+  width: 32px; height: 32px; padding: 0;
   border: 1px solid var(--line); border-radius: var(--r);
   background: var(--raised); color: var(--ink-dim);
-  cursor: pointer; font-size: 13px; line-height: 1;
+  cursor: pointer; font-size: 14px; line-height: 1;
   transition: border-color .14s, background .14s, color .14s;
 }
 .df button.ico:hover, .df .ico:hover { border-color: var(--primary-dim); background: #16252b; color: var(--ink); }
 .df button.ico:active { transform: translateY(1px); }
-.df .ico.tiny { width: 23px; height: 23px; font-size: 11px; }
+.df .ico.tiny { width: 32px; height: 32px; font-size: 12px; }
 .df .ico.close:hover { border-color: var(--danger); color: var(--danger); }
 /* The decorative glyph inside a callout keeps its original treatment. */
 .df .callout .ico, .df .info-box .ico, .df .warn-box .ico {

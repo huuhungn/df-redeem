@@ -258,6 +258,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       await this.adapter.open();
       await this.migrateLegacyUsedStatus();
       await this.migrateCasingAmbiguousInvalids();
+      await this.migrateGroupLimitOutOfMine();
       await this.seedOnFirstRun();
       return this;
     }
@@ -299,6 +300,25 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
         }
       }
       await this.adapter.put(STORES.meta, { key: 'migrate_invalid_400054_v1', migrated, migrated_at: this.clock() });
+      return { migrated, skipped: false };
+    }
+
+    /* `mine` used to absorb both 400069 (this account redeemed THIS code) and
+     * 400067 (this account hit the reward GROUP cap). Only the first is a fact
+     * about the code; the second leaves the code perfectly usable by someone
+     * else, which is exactly the case a user hits when a friend redeems a code
+     * they cannot. Split the 400067 rows out so the UI can tell the truth. */
+    async migrateGroupLimitOutOfMine() {
+      const marker = await this.adapter.get(STORES.meta, 'migrate_group_limit_400067_v1');
+      if (marker) return { migrated: 0, skipped: true };
+      let migrated = 0;
+      for (const row of await this.adapter.getAll(STORES.codes)) {
+        if (row && row.status === 'mine' && Number(row.err_code) === 400067) {
+          await this.adapter.put(STORES.codes, { ...row, status: 'group_limit' });
+          migrated += 1;
+        }
+      }
+      await this.adapter.put(STORES.meta, { key: 'migrate_group_limit_400067_v1', migrated, migrated_at: this.clock() });
       return { migrated, skipped: false };
     }
 

@@ -19,8 +19,12 @@
 
   /* ── ink ── */
   --ink: #e8f6f2;
-  --ink-dim: #9fb6b2;
-  --ink-mute: #6b8480;
+  /* Contrast measured on the live panel against --raised: the old dim/mute pair
+   * sat at ~4.9 and ~3.0. At the 10.5–11.5px used by hints, pills and table
+   * text that is legible only in theory, so both are lifted: dim clears 7:1
+   * (AAA at this size) and mute clears AA instead of failing it outright. */
+  --ink-dim: #b8ccc8;
+  --ink-mute: #8ba39e;
 
   /* ── signal ── */
   --primary: #2ee6c8;
@@ -34,7 +38,14 @@
   /* ── status (one source of truth) ── */
   --s-success: #2ee6c8;
   --s-mine: #4fb8f5;
+  /* Group cap is adjacent to `mine` (both are "this account", not "dead code")
+   * but must stay distinguishable at a glance, so it takes the violet-blue
+   * neighbour rather than a second shade of sky. */
+  --s-group_limit: #7aa2f7;
   --s-untried: #ffb340;
+  /* Garena-side failure: deliberately grey-blue, never red — nothing is wrong
+   * with the code and the row must not read as a dead verdict. */
+  --s-sys_error: #8b9fb0;
   --s-expired: #6b8480;
   --s-exhausted: #c89b5a;
   --s-gift_bug: #a98bfa;
@@ -193,7 +204,9 @@
 .df .bn { color: var(--ink); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 .df .fill.s-success { background: var(--s-success); }
 .df .fill.s-mine { background: var(--s-mine); }
+.df .fill.s-group_limit { background: var(--s-group_limit); }
 .df .fill.s-untried { background: var(--s-untried); }
+.df .fill.s-sys_error { background: var(--s-sys_error); }
 .df .fill.s-expired { background: var(--s-expired); }
 .df .fill.s-exhausted { background: var(--s-exhausted); }
 .df .fill.s-gift_bug { background: var(--s-gift_bug); }
@@ -212,7 +225,9 @@
 .df .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .df .pill.p-success { --c: var(--s-success); }
 .df .pill.p-mine { --c: var(--s-mine); }
+.df .pill.p-group_limit { --c: var(--s-group_limit); }
 .df .pill.p-untried { --c: var(--s-untried); }
+.df .pill.p-sys_error { --c: var(--s-sys_error); }
 .df .pill.p-expired { --c: var(--s-expired); }
 .df .pill.p-exhausted { --c: var(--s-exhausted); }
 .df .pill.p-gift_bug { --c: var(--s-gift_bug); }
@@ -273,7 +288,9 @@
                                 * Chrome's pale default and vanish on dark UI */
   color: var(--ink-dim); font-size: 10.5px; font-weight: 600;
 }
-.df button.chip { cursor: pointer; }
+/* Only the interactive chip gets the 32px floor: a plain .chip is a static
+ * label (status legend, meta row) and forcing it taller just adds dead space. */
+.df button.chip { cursor: pointer; min-height: 32px; padding: 3px 11px; font-size: 11.5px; }
 .df button.chip:hover { border-color: var(--primary-dim); color: var(--ink); }
 .df .chip.on { border-color: var(--primary-dim); color: var(--primary); background: var(--primary-glow); }
 
