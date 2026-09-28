@@ -165,6 +165,33 @@
 .df .pcard:hover { border-color: var(--line); }
 .df .pc-hd { display: flex; align-items: center; gap: 7px; }
 .df .pc-hd b { flex: 1; font-size: 12px; }
+
+/* Preset cards carry four lines of unequal importance: gun name, the raw string
+ * the submitter typed (only when it differs), the code, and the mode. The code
+ * is what gets copied, so it gets the strongest surface; the raw string is a
+ * provenance footnote and must not compete with the resolved name. */
+.df .pc-raw { font-size: 10px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df .pc-code {
+  display: block; margin: 6px 0 5px; padding: 5px 6px; font-size: 11px; letter-spacing: .3px;
+  background: var(--bg2); border: 1px solid var(--line2); border-radius: 5px;
+  overflow-wrap: anywhere; user-select: all;
+}
+.df .pc-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+.df .pc-mode {
+  padding: 1px 6px; border-radius: 99px; font-size: 10px;
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--fg2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.df .pc-by { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df .pc-ft { margin-top: 7px; }
+/* Section header inside the preset list: the class name plus how many are in
+ * it, so a collapsed-looking group is never ambiguous. */
+.df .card-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.df .card-hd h3 { margin: 0; font-size: 12px; letter-spacing: .2px; }
+.df .card-hd .muted { font-size: 10px; }
+/* Match count under the library chips: tells you the filter did something even
+ * when the result is short enough to fit without scrolling. */
+.df .rescount { margin: -4px 0 8px; font-size: 10px; }
 .df .pc-code {
   display: block; padding: 5px 7px; user-select: all;
   border: 1px dashed var(--line); border-radius: var(--r);

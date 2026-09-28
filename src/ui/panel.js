@@ -72,6 +72,9 @@ function createPanel(options) {
   let activeRun = null;
   let view = store.get('view', 'dashboard');
   let libFilter = { status: 'all', q: '', sort: 'code' };
+  /* Preset view has its own filter state: grouping by weapon class only
+   * helps if you can also narrow to one class and search within it. */
+  let presetFilter = { cls: 'all', q: '' };
   let libPage = 0;
   let selection = new Set();
   let cache = { codes: [], presets: [], stats: null, history: [] };
@@ -351,25 +354,28 @@ function createPanel(options) {
       const n = k === 'all' ? cache.codes.length : ((cache.stats && cache.stats.byStatus && cache.stats.byStatus[k]) || 0);
       const on = libFilter.status === k ? ' on' : '';
       const label = k === 'all' ? 'Tất cả' : STATUS_LABELS[k];
-      return `<button class="chip${on}" data-act="fchip" data-k="${k}">
+      return `<button class="chip${on}" data-act="fchip" data-k="${k}" aria-pressed="${libFilter.status === k}">
         ${k !== 'all' ? `<i class="s-${k}"></i>` : ''}${esc(label)} <b>${n}</b></button>`;
     }).join('');
 
     viewHost.innerHTML = `<div class="pad">
-      <div class="filters">
+      <div class="filters two">
         <input class="fq" placeholder="Tìm mã…" value="${esc(libFilter.q)}" aria-label="Tìm mã">
-        <select class="fstatus" aria-label="Lọc trạng thái">
-          <option value="all">Mọi trạng thái</option>
-          ${STATUS_ORDER.map((k) => `<option value="${k}"${libFilter.status === k ? ' selected' : ''}>${esc(STATUS_LABELS[k])}</option>`).join('')}
-        </select>
         <select class="fsort" aria-label="Sắp xếp">
           <option value="code"${libFilter.sort === 'code' ? ' selected' : ''}>A→Z</option>
           <option value="recent"${libFilter.sort === 'recent' ? ' selected' : ''}>Mới thử</option>
           <option value="status"${libFilter.sort === 'status' ? ' selected' : ''}>Trạng thái</option>
         </select>
+        ${libFilter.q || libFilter.status !== 'all' ? '<button class="act tiny ghost" data-act="fclear">Xoá lọc</button>' : ''}
       </div>
 
-      <div class="chiprow">${chips}</div>
+      <div class="chiprow" role="group" aria-label="Lọc theo trạng thái">${chips}</div>
+
+      <div class="rescount muted" aria-live="polite">
+        ${rows.length === cache.codes.length
+          ? `${cache.codes.length} mã`
+          : `${rows.length} / ${cache.codes.length} mã khớp`}
+      </div>
 
       <div class="bulk ${selection.size ? '' : 'off'}">
         <b>${selection.size} mã đã chọn</b>
@@ -652,17 +658,65 @@ function createPanel(options) {
     Warfare: 'Chiến Trường Toàn Diện',
     Operations: 'Chiến Dịch Sinh Tồn',
     'Chiến Dịch (Thoát Hiểm)': 'Chiến Dịch Sinh Tồn',
+    /* Event/rotating Warfare playlists: the preset applies to the same
+     * Warfare loadout, so they must not fragment into their own group. */
+    'Tactical Turmoil': 'Chiến Trường Toàn Diện',
   };
   const canonicalMode = (mode) => MODE_ALIASES[String(mode || '').trim()] || String(mode || '').trim() || 'Khác';
 
+  /* Weapon resolution lives in core so the catalogue is shared with the tests
+   * and any other surface; fall back to a pass-through if the bundle predates
+   * it, so an older cached core degrades to the previous behaviour rather than
+   * throwing on render. */
+  const Weapons = (typeof root !== 'undefined' && root.DFRedeemWeapons)
+    || (typeof window !== 'undefined' && window.DFRedeemWeapons)
+    || null;
+  const classify = (p) => (Weapons
+    ? Weapons.classifyPreset(p)
+    : { cls: 'unknown', clsLabel: 'Chưa rõ loại súng', weapon: String((p && (p.weapon || p.gun)) || '—'), raw: '' });
+
   function renderPresets() {
-    const list = cache.presets.slice();
-    const modes = {};
-    for (const p of list) {
-      const m = canonicalMode(p.mode);
-      (modes[m] = modes[m] || []).push(p);
+    /* Resolve once, then filter: every row needs its class for both the chip
+     * counts and the grouping, so classifying inside the loop would repeat the
+     * catalogue scan for each. */
+    const all = cache.presets.map((p) => ({ preset: p, meta: classify(p) }));
+
+    const counts = new Map();
+    for (const row of all) counts.set(row.meta.cls, (counts.get(row.meta.cls) || 0) + 1);
+
+    const q = presetFilter.q.trim().toUpperCase();
+    const rows = all.filter(({ preset, meta }) => {
+      if (presetFilter.cls !== 'all' && meta.cls !== presetFilter.cls) return false;
+      if (!q) return true;
+      /* Search covers the code, the resolved name and whatever the submitter
+       * typed, so pasting a code from Discord finds it and so does typing the
+       * Vietnamese gun name. */
+      return `${preset.code} ${meta.weapon} ${meta.raw} ${preset.mode || ''}`.toUpperCase().includes(q);
+    });
+
+    /* Section order follows the in-game Gunsmith class order, not the
+     * alphabet, with unknowns last so dirty data never leads the page. */
+    const order = (Weapons ? Weapons.WEAPON_CLASSES.map((c) => c.id) : []).concat(['unknown']);
+    const groups = new Map();
+    for (const row of rows) {
+      if (!groups.has(row.meta.cls)) groups.set(row.meta.cls, []);
+      groups.get(row.meta.cls).push(row);
     }
-    const keys = Object.keys(modes).sort();
+    const sections = order.filter((id) => groups.has(id)).map((id) => ({
+      id,
+      label: groups.get(id)[0].meta.clsLabel,
+      rows: groups.get(id).slice().sort((a, b) => String(a.meta.weapon).localeCompare(String(b.meta.weapon))),
+    }));
+
+    const chipFor = (id, label, n) => `<button class="chip${presetFilter.cls === id ? ' on' : ''}"
+      data-act="pchip" data-k="${esc(id)}"${presetFilter.cls === id ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${esc(label)} <b>${n}</b></button>`;
+
+    const chips = [chipFor('all', 'Tất cả', all.length)].concat(
+      order.filter((id) => counts.get(id)).map((id) => {
+        const cls = Weapons && Weapons.WEAPON_CLASSES.find((c) => c.id === id);
+        return chipFor(id, cls ? cls.label : 'Chưa rõ loại súng', counts.get(id));
+      }),
+    ).join('');
 
     viewHost.innerHTML = `<div class="pad">
       <div class="info-box">
@@ -670,22 +724,51 @@ function createPanel(options) {
         <p>Gunsmith → Loadout → nút kính lúp → dán mã. Linh kiện chưa mở khoá sẽ không nạp được.</p>
       </div>
 
-      ${list.length ? keys.map((m) => `<section class="card">
-        <div class="card-hd"><h3>${esc(m)}</h3><span class="muted">${modes[m].length} mã</span></div>
-        <div class="pgrid">${modes[m].map((p) => `<div class="pcard">
+      <div class="filters two">
+        <input class="pq" placeholder="Tìm mã, tên súng, chế độ…" value="${esc(presetFilter.q)}" aria-label="Tìm preset">
+        ${presetFilter.q || presetFilter.cls !== 'all' ? '<button class="act tiny ghost" data-act="pclear">Xoá lọc</button>' : ''}
+      </div>
+
+      <div class="chiprow" role="group" aria-label="Lọc theo loại súng">${chips}</div>
+
+      ${sections.length ? sections.map((s) => `<section class="card">
+        <div class="card-hd"><h3>${esc(s.label)}</h3><span class="muted">${s.rows.length} mã</span></div>
+        <div class="pgrid">${s.rows.map(({ preset, meta }) => `<div class="pcard">
           <div class="pc-hd">
-            <b>${esc(p.weapon || p.gun || '—')}</b>
-            ${p.format ? `<span class="tag">${esc(p.format)}</span>` : ''}
+            <b>${esc(meta.weapon)}</b>
+            ${preset.verified ? '<span class="tag ok" title="Đã kiểm tra">✓</span>' : ''}
           </div>
-          <code class="mono pc-code">${esc(p.code)}</code>
+          ${meta.raw ? `<div class="pc-raw muted" title="Người gửi ghi: ${esc(meta.raw)}">ghi: ${esc(meta.raw)}</div>` : ''}
+          <code class="mono pc-code">${esc(preset.code)}</code>
+          <div class="pc-meta">
+            <span class="pc-mode">${esc(canonicalMode(preset.mode))}</span>
+            ${preset.author && preset.author !== 'bundled' ? `<span class="muted pc-by">${esc(preset.author)}</span>` : ''}
+          </div>
           <div class="pc-ft">
-            <span class="muted">${esc(p.source || '')}</span>
-            <button class="act tiny" data-act="row-copy" data-code="${esc(p.code)}">Copy</button>
+            <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}">Copy</button>
           </div>
         </div>`).join('')}</div>
       </section>`).join('')
-      : `<div class="empty"><div class="ei">⌖</div><p>Chưa có code súng nào.</p></div>`}
+      : `<div class="empty"><div class="ei">⌖</div><p>${all.length
+        ? 'Không có preset nào khớp bộ lọc.'
+        : 'Chưa có code súng nào.'}</p>${all.length
+        ? '<button class="act tiny ghost" data-act="pclear">Xoá lọc</button>'
+        : ''}</div>`}
     </div>`;
+
+    const pq = viewHost.querySelector('.pq');
+    if (pq) {
+      pq.addEventListener('input', () => { presetFilter.q = pq.value; renderPresets(); });
+      /* Re-focus after the re-render so typing is not interrupted. */
+      if (presetFilter.q) {
+        pq.focus();
+        /* Guarded: setSelectionRange is absent on some input types and on
+         * non-browser DOM stubs, and losing the caret must never break render. */
+        if (typeof pq.setSelectionRange === 'function') {
+          pq.setSelectionRange(pq.value.length, pq.value.length);
+        }
+      }
+    }
   }
 
   /* ── share ─────────────────────────────────────────────────────────────── */
@@ -923,7 +1006,6 @@ function createPanel(options) {
 
   shell.addEventListener('change', (e) => {
     const t = e.target;
-    if (t.classList.contains('fstatus')) { libFilter.status = t.value; libPage = 0; renderLibrary(); }
     if (t.classList.contains('fsort')) { libFilter.sort = t.value; renderLibrary(); }
     if (t.classList.contains('pick')) {
       const tr = t.closest('tr');
@@ -956,6 +1038,9 @@ function createPanel(options) {
     /* library */
     if (act === 'fchip') { libFilter.status = btn.dataset.k; libPage = 0; return renderLibrary(); }
     if (act === 'fclear') { libFilter = { status: 'all', q: '', sort: libFilter.sort }; libPage = 0; return renderLibrary(); }
+    /* presets */
+    if (act === 'pchip') { presetFilter.cls = btn.dataset.k; return renderPresets(); }
+    if (act === 'pclear') { presetFilter = { cls: 'all', q: '' }; return renderPresets(); }
     if (act === 'pg-prev') { libPage = Math.max(0, libPage - 1); return renderLibrary(); }
     if (act === 'pg-next') { libPage += 1; return renderLibrary(); }
     if (act === 'row-copy') return copy(btn.dataset.code, 'mã ' + btn.dataset.code);

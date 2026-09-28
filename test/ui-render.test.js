@@ -324,9 +324,14 @@ test('library paginates at 25 rows and filters by status', async () => {
   await vault.upsert({ code: 'UITESTUNTRIED3', kind: 'gift', status: 'untried', source: 'ui-test' });
   await panel.go('library');
 
-  const sel = sd.querySelector('.fstatus');
-  sel.value = 'untried';
-  sel.dispatchEvent(dom.makeEvent('change', sel));
+  /* Status filtering is the chip row only. The old `.fstatus` select drove the
+   * same libFilter.status as the chips, so the two controls could disagree on
+   * screen while sharing one state; the select was removed rather than synced. */
+  assert(!sd.querySelector('.fstatus'), 'redundant status select should be gone');
+  const chip = sd.querySelectorAll('.chiprow .chip')
+    .find((b) => b.dataset.k === 'untried');
+  assert(chip, 'untried chip missing');
+  chip.dispatchEvent(dom.makeEvent('click', chip));
   rows = sd.querySelectorAll('tbody tr');
   assert(rows.length === 3, 'expected 3 untried rows, got ' + rows.length);
   const codes = rows.map((r) => r.querySelector('.mono').textContent.trim());
@@ -353,17 +358,84 @@ test('run view renders queue controls', async () => {
   assert(/\(3\)/.test(pick.textContent), 'untried count not shown: ' + pick.textContent);
 });
 
-test('presets view groups by mode and warns about in-game activation', async () => {
+test('presets view groups by weapon class and warns about in-game activation', async () => {
   await panel.go('presets');
   const sd = panel._shadow;
   const callout = sd.querySelector('.info-box').textContent;
   assert(/Gunsmith/.test(callout), 'missing Gunsmith instruction');
   const cards = sd.querySelectorAll('.pcard');
   assert(cards.length === 20, 'expected 20 preset cards, got ' + cards.length);
+
+  /* Grouping moved from mode to weapon class: mode gave 3 buckets that told you
+   * nothing about what a preset fits, while the class answers the question the
+   * user actually has ("which of my guns is this for?"). */
   const heads = sd.querySelectorAll('h3').map((h) => h.textContent);
-  assert(heads.length === 3, 'alias modes should collapse into 3 canonical groups, got ' + heads.length);
-  assert(heads.includes('Chiến Trường Toàn Diện'), 'missing canonical Warfare group: ' + heads.join(', '));
-  assert(heads.includes('Chiến Dịch Sinh Tồn'), 'missing canonical Operations group: ' + heads.join(', '));
+  assert(heads.includes('Súng Trường Tấn Công'), 'missing assault rifle group: ' + heads.join(', '));
+  assert(heads.includes('Súng Tiểu Liên'), 'missing SMG group: ' + heads.join(', '));
+  /* Raw weapon strings produced 18 buckets for 20 presets; the resolved
+   * grouping must be materially coarser or it is not a grouping. */
+  assert(heads.length <= 8, 'weapon classes should stay coarse, got ' + heads.length);
+
+  /* Assault rifles outnumber every other class in the shipped data, so the
+   * in-game class order (assault rifle first) must lead the page. */
+  assert(heads[0] === 'Súng Trường Tấn Công', 'class order should follow Gunsmith, got ' + heads[0]);
+
+  /* Every card must still show a copyable code and its mode. */
+  assert(sd.querySelectorAll('.pc-code').length === 20, 'every preset needs a code element');
+  assert(sd.querySelectorAll('.pc-mode').length === 20, 'every preset needs a mode chip');
+});
+
+test('preset class chips filter the grid', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+  const chips = sd.querySelectorAll('.chiprow .chip');
+  assert(chips.length >= 3, 'expected per-class chips, got ' + chips.length);
+
+  const smg = chips.find((c) => c.dataset.k === 'smg');
+  assert(smg, 'missing SMG chip');
+  /* The chip label carries its own count so you can see how many presets a
+   * class holds before clicking into it. */
+  const want = Number((smg.textContent.match(/(\d+)/) || [])[1]);
+  smg.dispatchEvent(dom.makeEvent('click', smg));
+
+  const heads = sd.querySelectorAll('h3').map((h) => h.textContent);
+  assert(heads.length === 1 && heads[0] === 'Súng Tiểu Liên', 'chip should isolate one class: ' + heads.join(', '));
+  assert(sd.querySelectorAll('.pcard').length === want,
+    'chip count must match the filtered grid: said ' + want + ', rendered ' + sd.querySelectorAll('.pcard').length);
+
+  /* Clearing restores the full grid rather than leaving a filtered view with no
+   * visible reason for the missing rows. */
+  const clear = sd.querySelector('[data-act="pclear"]');
+  assert(clear, 'missing clear-filter button while filtered');
+  clear.dispatchEvent(dom.makeEvent('click', clear));
+  assert(sd.querySelectorAll('.pcard').length === 20, 'clearing should restore all presets');
+});
+
+test('preset search matches code, resolved name and submitted text', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+  const q = sd.querySelector('.pq');
+  assert(q, 'missing preset search box');
+
+  const typeQuery = (value) => {
+    const box = sd.querySelector('.pq');
+    box.value = value;
+    box.dispatchEvent(dom.makeEvent('input', box));
+  };
+
+  /* Searching a gun name must find it even though the shipped string for that
+   * preset is the Vietnamese client name, not the catalogue name. */
+  typeQuery('SVCH');
+  assert(sd.querySelectorAll('.pcard').length === 1, 'SVCH search should match one preset');
+
+  /* Searching a pasted code must find it regardless of class. */
+  typeQuery('MP5');
+  const found = sd.querySelectorAll('.pcard').length;
+  assert(found >= 1, 'MP5 search should match at least one preset, got ' + found);
+
+  typeQuery('ZZZNOTHINGZZZ');
+  assert(sd.querySelectorAll('.pcard').length === 0, 'nonsense search should match nothing');
+  assert(sd.querySelector('.empty'), 'empty search needs an empty state');
 });
 
 test('share view separates gift codes from presets', async () => {

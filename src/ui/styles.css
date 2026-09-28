@@ -164,6 +164,9 @@
 
 /* ── library ───────────────────────────────────────────────────────────── */
 .df .filters { display: grid; grid-template-columns: minmax(130px, 1fr) auto auto; gap: 7px; }
+/* .two drops the third column: status filtering moved entirely to the chip
+ * row, so the search box gets the space the redundant select used to take. */
+.df .filters.two { grid-template-columns: minmax(130px, 1fr) auto auto; }
 .df .bulk {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 11px;

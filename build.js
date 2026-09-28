@@ -58,6 +58,7 @@ const sync = inline('sync.js');
 const codes = inline('codes.js');
 const garena = inline('garena.js');
 const engine = inline('engine.js');
+const weapons = inline('weapons.js');
 const seed = JSON.stringify(JSON.parse(warnRead(path.join(SRC, 'data', 'seed.json')) || '{}'));
 const uiDir = path.join(SRC, 'ui');
 const uiFiles = fs.existsSync(uiDir)
@@ -91,7 +92,7 @@ const BANNER = `/* Delta Force Auto Redeem v${VERSION}
  * redeem.df.garena.sg pages you already opened and logged into.
  */`;
 
-const CORE = `${schema}\n${vault}\n${sync}\n${codes}\n${garena}\n${engine}\nconst DF_REDEEM_SEED = ${seed};`;
+const CORE = `${schema}\n${vault}\n${sync}\n${codes}\n${garena}\n${weapons}\n${engine}\nconst DF_REDEEM_SEED = ${seed};`;
 /* The service worker needs only sync.js — it must not carry the DOM engine. */
 const CORE_SYNC = sync;
 const UI = `const DF_THEME_CSS = ${JSON.stringify(themeCss)};
