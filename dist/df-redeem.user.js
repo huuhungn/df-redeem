@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Delta Force Auto Redeem (verified)
 // @namespace    local.df-redeem
-// @version      3.2.1
+// @version      3.2.2
 // @description  Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật, xuất CSV/JSON. Không gửi dữ liệu ra ngoài.
 // @author       local
 // @match        https://redeem.df.garena.sg/*
@@ -11,8 +11,8 @@
 // @grant        GM_deleteValue
 // @noframes
 // ==/UserScript==
-/* Delta Force Auto Redeem v3.2.1
- * Built v3.2.1 — local build, no remote source
+/* Delta Force Auto Redeem v3.2.2
+ * Built v3.2.2 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3252,25 +3252,60 @@ function createPanel(options) {
     cache.codes = all.filter((r) => !presetCodes.has(r.code));
     cache.presets = presets;
     cache.stats = stats;
-    cache.history = hist;
+    localHistory = hist;
+    /* Merge whatever the last mirror read returned, so a revisit keeps the
+     * drawer's runs on screen while the bridge is asked again. */
+    cache.history = mergeHistory(hist, mirror.rows);
+    loadMirror();
+  }
 
-    /* IndexedDB is per-origin, so a run done in the Garena drawer is absent
-     * from this store when we are the extension page (and vice versa). Merge
-     * the shared mirror in, newest first, so History is complete on every
-     * surface. De-duplicated on code+timestamp against the local rows. */
-    if (opts.sync && opts.sync.readMirror) {
-      try {
-        const reply = await opts.sync.readMirror();
-        const rows = (reply && reply.rows) || [];
-        if (rows.length) {
-          const seen = new Set(hist.map((r) => String(r.code).toUpperCase() + '|' + (r.timestamp || '')));
-          const extra = rows.filter((r) => r && r.code
-            && !seen.has(String(r.code).toUpperCase() + '|' + (r.timestamp || '')));
-          cache.history = hist.concat(extra)
-            .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  /* IndexedDB is per-origin, so a run done in the Garena drawer is absent
+   * from this store when we are the extension page (and vice versa). The
+   * worker keeps a shared mirror, merged in newest first and de-duplicated on
+   * code+timestamp against the local rows.
+   *
+   * It is read in the background and never awaited by navigation: the drawer
+   * reaches the worker through askBridge, which waits up to 60s for a service
+   * worker that may be asleep, and every tab switch used to hang on a read
+   * only History needs. */
+  let localHistory = [];
+  const mirror = { rows: [], state: 'idle', error: '' };
+  let mirrorSeq = 0;
+
+  function mergeHistory(local, rows) {
+    if (!rows.length) return local;
+    const key = (r) => String(r.code).toUpperCase() + '|' + (r.timestamp || '');
+    const seen = new Set(local.map(key));
+    const extra = rows.filter((r) => r && r.code && !seen.has(key(r)));
+    return local.concat(extra)
+      .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  }
+
+  function loadMirror() {
+    if (!opts.sync || !opts.sync.readMirror) return;
+    const seq = ++mirrorSeq;
+    mirror.state = 'loading';
+    Promise.resolve()
+      .then(() => opts.sync.readMirror())
+      .then((reply) => {
+        /* The two transports fail differently: askBridge rejects, while
+         * chrome.runtime.sendMessage resolves {ok:false} — or nothing at all
+         * when no listener answered. Neither is an empty mirror. */
+        if (!reply || reply.ok === false) throw new Error((reply && reply.error) || 'Worker không trả lời.');
+        return Array.isArray(reply.rows) ? reply.rows : [];
+      })
+      .then((rows) => { if (seq === mirrorSeq) { mirror.rows = rows; mirror.state = 'ok'; mirror.error = ''; } },
+        (err) => { if (seq === mirrorSeq) { mirror.state = 'error'; mirror.error = String((err && err.message) || err); } })
+      .then(() => {
+        if (seq !== mirrorSeq) return;
+        cache.history = mergeHistory(localHistory, mirror.rows);
+        /* Repaint only the view that shows it; the user may have moved on. */
+        if (view === 'history') {
+          const top = viewHost.scrollTop;
+          renderHistory();
+          viewHost.scrollTop = top;
         }
-      } catch (_) { /* the worker may be asleep; local history still renders */ }
-    }
+      });
   }
 
   const shareableCodes = () => cache.codes.filter((r) => SHAREABLE.has(r.status));
@@ -3995,6 +4030,11 @@ function createPanel(options) {
       .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 
     viewHost.innerHTML = `<div class="pad">
+      ${mirror.state === 'error' ? `<div class="bulk" data-mirror="error" role="status">
+        <span>Không đọc được lịch sử từ bề mặt kia (${esc(mirror.error)}). Các lượt chạy ở đó có thể đang thiếu.</span>
+        <span class="spacer"></span>
+        <button class="act tiny" data-act="refresh">Thử lại</button>
+      </div>` : ''}
       ${historyCode ? `<div class="bulk">
         <b>Đang xem: <code class="mono">${esc(historyCode)}</code></b>
         <span class="spacer"></span>
@@ -4024,6 +4064,7 @@ function createPanel(options) {
     presets: renderPresets, share: renderShare, history: renderHistory,
   };
 
+  let navSeq = 0;
   async function go(name) {
     if (!VIEWS.includes(name)) name = 'dashboard';
     view = name;
@@ -4043,7 +4084,11 @@ function createPanel(options) {
      * after — refresh() reads the vault and a slow read would otherwise leave
      * the outgoing view sitting at the old offset until it resolves. */
     viewHost.scrollTop = 0;
+    const seq = ++navSeq;
     await refresh();
+    /* Two quick switches can resolve out of order; only the latest may paint,
+     * or the first view lands last under the second tab. */
+    if (seq !== navSeq) return;
     RENDER[name]();
     viewHost.scrollTop = 0;
     renderFooter();
@@ -4467,7 +4512,7 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.2.1', target: 'userscript', store, sync });
+  const panel = createPanel({ version: '3.2.2', target: 'userscript', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
 }());

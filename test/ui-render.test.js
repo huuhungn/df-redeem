@@ -275,6 +275,16 @@ vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__
 const SEED_PRESET_ROWS = (sandbox.__SEED && sandbox.__SEED.presets) || [];
 const SEED_PRESETS = SEED_PRESET_ROWS.length;
 
+/* Poll for a condition the panel reaches asynchronously. */
+async function until(fn, msg, ms = 1000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(msg);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 let failures = 0;
@@ -632,9 +642,136 @@ test('history merges the cross-origin mirror so every surface sees a run', async
   });
 
   await mirrorPanel.go('history');
-  const text = mirrorPanel._shadow.querySelector('ol.tline, .empty').textContent;
-  assert(/MIRRORONLY01/.test(text),
-    'history must show an attempt that exists only in the shared mirror, got: ' + text.slice(0, 120));
+  /* The mirror is merged in after History paints, so wait for it rather than
+   * asserting on the first frame. */
+  const text = await until(() => {
+    const t = mirrorPanel._shadow.querySelector('ol.tline, .empty').textContent;
+    return /MIRRORONLY01/.test(t) && t;
+  }, 'history must show an attempt that exists only in the shared mirror');
+  assert(text);
+});
+
+/* A bridge call the test controls: pending until release() or fail(). */
+function deferredMirror(rows) {
+  let release, fail;
+  const calls = [];
+  const readMirror = () => { const p = new Promise((res, rej) => { release = () => res({ ok: true, rows }); fail = rej; }); calls.push(p); return p; };
+  return { readMirror, calls, release: () => release(), fail: (e) => fail(e) };
+}
+
+function mirrorRow(code) {
+  return { code, status: 'success', result_msg: 'từ drawer', err_code: null, timestamp: new Date().toISOString(), surface: 'drawer' };
+}
+
+async function mirrorPanelWith(sync) {
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  return sandbox.__createPanel({ version: '3.0.0', target: 'test', vault: v, sync });
+}
+
+const within = (p, ms) => Promise.race([
+  p.then(() => true),
+  new Promise((res) => setTimeout(() => res(false), ms)),
+]);
+
+test('switching views never waits on the sync bridge', async () => {
+  /* The drawer reaches the worker through askBridge, which waits up to 60s
+   * for a service worker that may be asleep. Every tab switch awaited that
+   * read, so all six views froze on a call only History uses. Navigation must
+   * settle on the local vault alone. */
+  const m = deferredMirror([mirrorRow('LATEMIRROR01')]);
+  const p = await mirrorPanelWith({ readMirror: m.readMirror });
+  for (const v of p._views) {
+    assert(await within(p.go(v), 500), 'go(' + v + ') blocked on a bridge read that never answered');
+    assert(p._shadow.querySelector('.view-host').children.length, v + ' did not paint while the bridge was silent');
+  }
+  m.release();
+});
+
+test('a late mirror reply fills History in without a second navigation', async () => {
+  const m = deferredMirror([mirrorRow('LATEMIRROR02')]);
+  const p = await mirrorPanelWith({ readMirror: m.readMirror });
+  await p.go('history');
+  const host = p._shadow.querySelector('.view-host');
+  assert(!/LATEMIRROR02/.test(host.textContent), 'mirror row shown before the bridge answered');
+  m.release();
+  await until(() => /LATEMIRROR02/.test(host.textContent), 'History never picked up the late mirror reply');
+});
+
+test('a late mirror reply never paints over the view the user moved to', async () => {
+  const m = deferredMirror([mirrorRow('LATEMIRROR03')]);
+  const p = await mirrorPanelWith({ readMirror: m.readMirror });
+  await p.go('history');
+  await p.go('presets');
+  m.release();
+  await new Promise((r) => setTimeout(r, 20));
+  const host = p._shadow.querySelector('.view-host');
+  assert(!/LATEMIRROR03/.test(host.textContent) && !host.querySelector('ol.tline'),
+    'History repainted over Preset after the user had left it');
+  const tab = p._shadow.querySelector('.vtab[aria-selected="true"]');
+  assert(tab && tab.dataset.view === 'presets', 'selected tab moved away from Preset');
+});
+
+test('merged mirror rows survive the next visit while the bridge is re-read', async () => {
+  /* Refreshing local data must not drop the rows the last mirror read added:
+   * History would flash the drawer's runs away on every visit until the
+   * bridge answered again. */
+  let n = 0;
+  const later = deferredMirror([mirrorRow('KEEPMIRROR01')]);
+  const p = await mirrorPanelWith({
+    readMirror: () => (n++ === 0 ? Promise.resolve({ ok: true, rows: [mirrorRow('KEEPMIRROR01')] }) : later.readMirror()),
+  });
+  await p.go('history');
+  const host = p._shadow.querySelector('.view-host');
+  await until(() => /KEEPMIRROR01/.test(host.textContent), 'first mirror read never merged');
+  await p.go('dashboard');
+  await p.go('history');
+  assert(/KEEPMIRROR01/.test(host.textContent), 'History dropped the mirrored run while waiting on the bridge');
+  later.release();
+});
+
+test('History says so when the mirror cannot be read', async () => {
+  /* The two transports fail differently: the drawer's askBridge rejects,
+   * the app's chrome.runtime.sendMessage resolves {ok:false}. Both used to
+   * vanish into a silent catch or read as zero rows, so a History missing
+   * every drawer run looked complete. */
+  for (const [label, readMirror] of [
+    ['rejecting bridge', () => Promise.reject(new Error('Bridge không trả lời.'))],
+    ['ok:false reply', () => Promise.resolve({ ok: false, error: 'worker down' })],
+  ]) {
+    const p = await mirrorPanelWith({ readMirror });
+    await p.go('history');
+    const host = p._shadow.querySelector('.view-host');
+    await until(() => host.querySelector('[data-mirror="error"]'),
+      label + ': History gave no sign that the shared mirror was unreadable');
+  }
+  const ok = await mirrorPanelWith({ readMirror: async () => ({ ok: true, rows: [] }) });
+  await ok.go('history');
+  await new Promise((r) => setTimeout(r, 20));
+  assert(!ok._shadow.querySelector('[data-mirror="error"]'), 'an empty but healthy mirror was reported as an error');
+});
+
+test('a slow vault read cannot paint an old view over a newer one', async () => {
+  /* go() awaits the vault before painting. Two quick switches resolved out of
+   * order painted the first view last, with the second tab still selected. */
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  const realAll = v.all.bind(v);
+  let gate = null;
+  v.all = async () => { if (gate) await gate; return realAll(); };
+  const p = sandbox.__createPanel({ version: '3.0.0', target: 'test', vault: v });
+  await p.go('dashboard');
+  let open;
+  gate = new Promise((r) => { open = r; });
+  const slow = p.go('history');
+  gate = null;
+  await p.go('presets');
+  open();
+  await slow;
+  const host = p._shadow.querySelector('.view-host');
+  const painted = host.innerHTML;
+  await p.go('presets');
+  assert(painted === host.innerHTML, 'a stale go(history) painted over Preset');
 });
 
 test('bundle touches no credentials beyond its own redaction guards', async () => {
@@ -928,7 +1065,17 @@ test('no two buttons in a view share the same accessible name', async () => {
 
 (async () => {
   for (const t of tests) {
-    try { await t.fn(); console.log('  ok   ' + t.name); }
+    /* A test awaiting a promise that never settles let Node drain its event
+     * loop and exit 0 mid-suite with no summary, which reads as a pass when the
+     * file is run on its own. Bound every test instead. */
+    try {
+      let timer;
+      await Promise.race([
+        t.fn(),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('timed out after 5s (a promise never settled)')), 5000); }),
+      ]).finally(() => clearTimeout(timer));
+      console.log('  ok   ' + t.name);
+    }
     catch (e) { failures += 1; console.log('  FAIL ' + t.name + '\n       ' + (e && e.stack ? e.stack.split('\n').slice(0, 4).join('\n       ') : e)); }
   }
   console.log(`\n${tests.length - failures}/${tests.length} ui-render tests passed`);
