@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.3
- * Built v3.1.3 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.4
+ * Built v3.1.4 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4399,7 +4399,7 @@ function createPanel(options) {
     reportCost: (code, cost, mode) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost, mode } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
-  const panel = createPanel({ version: '3.1.3', target: 'page', surface: 'page', sync });
+  const panel = createPanel({ version: '3.1.4', target: 'page', surface: 'page', sync });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
 
