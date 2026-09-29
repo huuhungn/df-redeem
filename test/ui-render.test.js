@@ -751,6 +751,73 @@ test('History says so when the mirror cannot be read', async () => {
   assert(!ok._shadow.querySelector('[data-mirror="error"]'), 'an empty but healthy mirror was reported as an error');
 });
 
+test('an orphaned page asks for a page reload instead of offering a useless retry', async () => {
+  /* Disabling, reloading or updating the extension leaves the page's content
+   * scripts orphaned: every bridge call then fails with "Extension context
+   * invalidated." until the page itself is reloaded. The banner used to offer
+   * "Thử lại", which only repeated the failure (seen live on v3.2.2). */
+  let calls = 0;
+  const p = await mirrorPanelWith({
+    readMirror: () => { calls++; return Promise.reject(new Error('Extension context invalidated.')); },
+  });
+  await p.go('history');
+  const host = p._shadow.querySelector('.view-host');
+  const gone = await until(() => host.querySelector('[data-mirror="gone"]'),
+    'an invalidated extension context was reported as a retryable read error');
+  assert(!host.querySelector('[data-mirror="error"]'), 'both banners shown at once');
+  assert(!gone.querySelector('[data-act="refresh"]'), 'the orphaned banner still offers a retry that cannot work');
+  assert(/Tải lại trang/.test(gone.textContent), 'the banner must tell the user to reload the page');
+  assert(gone.className.split(/\s+/).includes('warn'), 'the banner must use the warning tone');
+
+  /* The button reloads the page — and only that. */
+  let reloads = 0;
+  const hadReload = Object.prototype.hasOwnProperty.call(sandbox.location, 'reload');
+  const prevReload = sandbox.location.reload;
+  sandbox.location.reload = () => { reloads++; };
+  try {
+    const before = calls;
+    gone.querySelector('[data-act="reload-page"]').click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert(reloads === 1, 'Tải lại trang did not reload the page (reloads=' + reloads + ')');
+    assert(calls === before, 'Tải lại trang re-read the bridge instead of reloading');
+  } finally {
+    if (hadReload) sandbox.location.reload = prevReload; else delete sandbox.location.reload;
+  }
+});
+
+test('the reload prompt never throws away a run in progress', async () => {
+  /* location.reload() kills a running queue mid-code and its unfinished codes
+   * would look untried. The button must refuse while a run is active. */
+  const p = await mirrorPanelWith({
+    readMirror: () => Promise.reject(new Error('Extension context invalidated.')),
+  });
+  await p.go('run');
+  const sd = p._shadow;
+  sd.querySelector('.queue').value = 'RELOADGUARD01';
+  sd.querySelector('[data-act="start"]').click();
+  let reloads = 0;
+  const hadReload = Object.prototype.hasOwnProperty.call(sandbox.location, 'reload');
+  const prevReload = sandbox.location.reload;
+  sandbox.location.reload = () => { reloads++; };
+  try {
+    /* Fire the action exactly as the banner button would, while the run is live. */
+    const btn = sandbox.document.createElement('button');
+    btn.setAttribute('data-act', 'reload-page');
+    btn.dataset = { act: 'reload-page' };
+    sd.querySelector('.view-host').appendChild(btn);
+    btn.click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert(reloads === 0, 'the page was reloaded with a run still in progress');
+    assert(/Đang có lượt chạy/.test(sd.querySelector('.toast-wrap').textContent),
+      'refusing to reload must say why');
+  } finally {
+    const stop = sd.querySelector('[data-act="stop"]');
+    if (stop) stop.click();
+    if (hadReload) sandbox.location.reload = prevReload; else delete sandbox.location.reload;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+});
+
 test('a slow vault read cannot paint an old view over a newer one', async () => {
   /* go() awaits the vault before painting. Two quick switches resolved out of
    * order painted the first view last, with the second tab still selected. */

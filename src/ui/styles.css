@@ -176,6 +176,14 @@
   font-size: 11.5px;
 }
 .df .bulk.off { display: none; }
+/* A failed read is a warning, not a filter notice: the sky tone made the
+ * mirror banner look like the "Đang xem" chip and it was easy to skim past. */
+.df .bulk.warn {
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 11%, transparent);
+}
+.df .bulk.warn b { color: #ffe4a0; }
 .df .bulk b { color: var(--sky); }
 .df .pager { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ink-mute); font-size: 11.5px; }
 

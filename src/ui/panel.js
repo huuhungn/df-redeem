@@ -334,6 +334,13 @@ function createPanel(options) {
       .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
   }
 
+  /* Disabling, reloading or updating the extension orphans the content
+   * scripts already on the page: every chrome.runtime call from bridge.js then
+   * throws "Extension context invalidated." for the rest of the page's life.
+   * Unlike a sleeping worker this never recovers, so "Thử lại" only repeated
+   * the same failure — the one thing that helps is reloading the page. */
+  const isContextGone = (message) => /extension context invalidated/i.test(String(message || ''));
+
   function loadMirror() {
     if (!opts.sync || !opts.sync.readMirror) return;
     const seq = ++mirrorSeq;
@@ -348,7 +355,11 @@ function createPanel(options) {
         return Array.isArray(reply.rows) ? reply.rows : [];
       })
       .then((rows) => { if (seq === mirrorSeq) { mirror.rows = rows; mirror.state = 'ok'; mirror.error = ''; } },
-        (err) => { if (seq === mirrorSeq) { mirror.state = 'error'; mirror.error = String((err && err.message) || err); } })
+        (err) => {
+          if (seq !== mirrorSeq) return;
+          mirror.error = String((err && err.message) || err);
+          mirror.state = isContextGone(mirror.error) ? 'gone' : 'error';
+        })
       .then(() => {
         if (seq !== mirrorSeq) return;
         cache.history = mergeHistory(localHistory, mirror.rows);
@@ -1083,7 +1094,12 @@ function createPanel(options) {
       .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 
     viewHost.innerHTML = `<div class="pad">
-      ${mirror.state === 'error' ? `<div class="bulk" data-mirror="error" role="status">
+      ${mirror.state === 'gone' ? `<div class="bulk warn" data-mirror="gone" role="status">
+        <span><b>Extension vừa được tải lại hoặc cập nhật.</b> Trang này đã mất kết nối với extension nên không đọc được lịch sử từ bề mặt kia. Tải lại trang để kết nối lại.</span>
+        <span class="spacer"></span>
+        <button class="act tiny" data-act="reload-page">Tải lại trang</button>
+      </div>` : ''}
+      ${mirror.state === 'error' ? `<div class="bulk warn" data-mirror="error" role="status">
         <span>Không đọc được lịch sử từ bề mặt kia (${esc(mirror.error)}). Các lượt chạy ở đó có thể đang thiếu.</span>
         <span class="spacer"></span>
         <button class="act tiny" data-act="refresh">Thử lại</button>
@@ -1323,6 +1339,13 @@ function createPanel(options) {
     if (act === 'goto-history') { historyCode = null; return go('history'); }
     if (act === 'hist-all') { historyCode = null; return go('history'); }
     if (act === 'open-redeem') { location.href = 'https://redeem.df.garena.sg/vi/cdkgarena.html'; return; }
+    /* Reloading kills a run in flight, and its unfinished codes would read as
+     * never tried, so refuse until it ends instead of dropping it silently. */
+    if (act === 'reload-page') {
+      if (activeRun) return toast('Đang có lượt chạy — dừng hoặc chờ xong rồi hãy tải lại trang.', 'warn');
+      location.reload();
+      return;
+    }
 
     /* library */
     if (act === 'fchip') { libFilter.status = btn.dataset.k; libPage = 0; return renderLibrary(); }
