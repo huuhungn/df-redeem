@@ -918,8 +918,8 @@ function createPanel(options) {
             ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
             <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
               title="${cost.value ? 'Sửa chi phí build Chiến Dịch này' : 'Áp preset trong game rồi nhập chi phí Chiến Dịch'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
-          </div>` : `<div class="pc-cost pc-cost-na" title="Chi phí chỉ áp dụng cho preset Chiến Dịch (Thoát Hiểm)">
-            <span class="pc-cost-label">Chi phí</span><span class="muted pc-cost-na-text">Chỉ Chiến Dịch</span>
+          </div>` : `<div class="pc-cost pc-cost-na" title="Chiến Trường Toàn Diện phát sẵn trang bị, nên build này không có chi phí">
+            <span class="pc-cost-label">Chi phí trang bị</span><span class="muted pc-cost-na-text">Miễn phí ở chế độ này</span>
           </div>`}
 
           <div class="pc-ft">

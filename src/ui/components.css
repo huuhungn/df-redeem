@@ -220,6 +220,11 @@
 /* An absent cost must read as "nobody has measured this yet", not as zero. */
 .df .pc-cost.none .pc-cost-val { color: var(--ink-mute); }
 .df .pc-cost-edit { margin-left: auto; }
+/* Warfare issues its loadouts, so the row states that plainly instead of
+ * showing an empty price the player might try to fill in. It is deliberately
+ * quieter than a real cost: it is an explanation, not a measurement. */
+.df .pc-cost-na { border-top-style: dotted; opacity: .72; }
+.df .pc-cost-na-text { margin-left: auto; font-size: 10px; }
 
 /* Agreement state is the whole point of the contribution flow, so it is a
  * visible badge rather than a tooltip: a number nobody has cross-checked should
