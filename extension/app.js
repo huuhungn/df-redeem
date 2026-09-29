@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.5
- * Built v3.1.5 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.6
+ * Built v3.1.6 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4398,6 +4398,9 @@ function createPanel(options) {
    * the runs the drawer mirrored into shared storage. */
   const sync = {
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
+    /* The sync chip reads this; without it the guard in panel.js hides the
+     * chip, so the app looked permanently unsynced. */
+    status: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'status' }),
     /* The app cannot drive the Garena form, but History here can still finish a
      * run mirrored from the drawer, and that path snapshots the personal vault.
      * Leaving these off made the panel skip personal sync with no message. */
@@ -4411,7 +4414,7 @@ function createPanel(options) {
     setLocal: (key, value) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'setPanelState', payload: { key, value } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
-  const panel = createPanel({ version: '3.1.5', target: 'page', surface: 'page', sync });
+  const panel = createPanel({ version: '3.1.6', target: 'page', surface: 'page', sync });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
 

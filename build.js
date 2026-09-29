@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.1.5';
+const VERSION = '3.1.6';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -523,6 +523,9 @@ ${UI}
    * the runs the drawer mirrored into shared storage. */
   const sync = {
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
+    /* The sync chip reads this; without it the guard in panel.js hides the
+     * chip, so the app looked permanently unsynced. */
+    status: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'status' }),
     /* The app cannot drive the Garena form, but History here can still finish a
      * run mirrored from the drawer, and that path snapshots the personal vault.
      * Leaving these off made the panel skip personal sync with no message. */

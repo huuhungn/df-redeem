@@ -118,9 +118,40 @@ check('panel sync calls were found to check', panelSyncCalls.length >= 4, panelS
 for (const [file, label] of [['extension/content.js', 'extension drawer'], ['extension/app.js', 'full-page app']]) {
   let src;
   try { src = read(file); } catch (_) { check(`${label} bundle exists`, false, file + ' missing — run node build.js'); continue; }
-  /* The sync object is an object literal, so a provided method appears as a
-   * `name:` key on it; that is what the panel's `opts.sync.name &&` guard sees. */
-  const missing = panelSyncCalls.filter((name) => !new RegExp('\\b' + name + ':\\s').test(src));
+  /* Scope the search to the sync object literal itself. Searching the whole
+   * bundle gives false passes: `status:` also appears in unrelated payloads
+   * like `{ code: r.code, status: r.status }`, which hid the full-page app
+   * shipping without sync.status — the sync chip there silently stayed blank. */
+  const open = src.indexOf('const sync = {');
+  check(`${label} declares a sync object literal`, open >= 0, 'no `const sync = {` in ' + file);
+  if (open < 0) continue;
+  let depth = 0; let end = -1;
+  for (let i = src.indexOf('{', open); i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === '{') depth += 1;
+    else if (ch === '}') { depth -= 1; if (depth === 0) { end = i; break; } }
+  }
+  check(`${label} sync literal is balanced`, end > open, 'could not find the closing brace');
+  if (end <= open) continue;
+  const syncBlock = src.slice(open, end + 1);
+  /* Only TOP-LEVEL keys count. Nested payloads inside a method body also match
+   * `name:` — `syncNow` maps records to `{ code: r.code, status: r.status }`,
+   * which made a missing top-level `status` look present. Walk the literal and
+   * collect keys at brace depth 1, outside strings. */
+  const provided = new Set();
+  let d = 0; let quote = '';
+  for (let i = syncBlock.indexOf('{'); i < syncBlock.length; i += 1) {
+    const ch = syncBlock[i];
+    if (quote) { if (ch === quote && syncBlock[i - 1] !== '\\') quote = ''; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
+    if (ch === '{' || ch === '(' || ch === '[') { d += 1; continue; }
+    if (ch === '}' || ch === ')' || ch === ']') { d -= 1; if (d === 0) break; continue; }
+    if (d === 1) {
+      const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(syncBlock.slice(i));
+      if (m) { provided.add(m[1]); i += m[0].length - 1; }
+    }
+  }
+  const missing = panelSyncCalls.filter((name) => !provided.has(name));
   check(`${label} provides every sync method the panel calls`,
     missing.length === 0,
     'missing: ' + missing.join(','));
@@ -133,6 +164,28 @@ for (const op of ['getPanelState', 'setPanelState']) {
   check(`background handles ${op}`,
     new RegExp("op === '" + op + "'").test(bgSrc),
     'no handler branch in background.js');
+}
+
+/* ── every bridge op the bundles send must have a handler ───────────────────
+ * The `X && X.method` pattern above protects the *caller*; this protects the
+ * other end of the same wire. An op with no branch falls through to the
+ * "unknown op" reply, which the panel's guards swallow just as quietly — the
+ * sync chip stayed blank in the full-page app for exactly that reason. */
+for (const [file, label] of [['extension/content.js', 'extension drawer'], ['extension/app.js', 'full-page app']]) {
+  let src;
+  try { src = read(file); } catch (_) { continue; }
+  /* Two call shapes ship today: the app sends `{ op: 'name' }` objects, the
+   * drawer funnels through `askBridge('name')`. Collect both, or a bundle with
+   * only one shape reports zero ops and the check quietly proves nothing. */
+  const ops = [...new Set([
+    ...[...src.matchAll(/op:\s*'([a-zA-Z][\w]*)'/g)].map((m) => m[1]),
+    ...[...src.matchAll(/askBridge\(\s*'([a-zA-Z][\w]*)'/g)].map((m) => m[1]),
+  ])];
+  check(`${label} sends at least one bridge op`, ops.length > 0, 'found none');
+  const unhandled = ops.filter((op) => !new RegExp("op === '" + op + "'").test(bgSrc));
+  check(`${label} only sends bridge ops background.js handles`,
+    unhandled.length === 0,
+    'unhandled: ' + unhandled.join(','));
 }
 
 console.log(`\n${passed} passed, ${failed} failed, ${passed + failed} total`);
