@@ -3,7 +3,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6Fij9mAu9du6tiS0qsEHx5uM63dKmJGMMHyh9Ubh5j0YVPAF1icrm9kh6A/72ZK3d8ZPZgEf0WnU78yx32Xjudx6jydKIsxwVFxD/ov6tE3MpIoTCpzpBjhmUMipMUtDUZxU0zB4a9cZB6gXaxXnX+zLeOpLpsej1kvCzQpj/wKtlpXdoIo+FnS8kUoKcoRpCkHEub6dfggkXkX/9UA+fzEHEDWezdaKRCjgM95rVUWrfU6ZXeWKDg4LnWWE/vLXKVwJZE4+vCQr5Ktl/LEYFyFt0YxuSLTVwLoF4KjZqCfIxgz6fHJckqMwfUHi5luA+MBih9lCU6Nn7LL5rcHOkQIDAQAB",
   "name": "Delta Force Auto Redeem",
   "short_name": "DF Redeem",
-  "version": "3.1.7",
+  "version": "3.1.8",
   "description": "Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật. Không gửi dữ liệu cá nhân ra ngoài.",
   "icons": {
     "16": "icons/icon16.png",

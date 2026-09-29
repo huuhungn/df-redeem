@@ -157,6 +157,37 @@ for (const [file, label] of [['extension/content.js', 'extension drawer'], ['ext
     'missing: ' + missing.join(','));
 }
 
+/* Every awaited sync call in the panel must sit inside a try, because the two
+ * transports fail differently: the app's chrome.runtime.sendMessage RESOLVES
+ * with { ok: false }, while the drawer's askBridge REJECTS. Code that only
+ * inspects reply.ok therefore handles the app and lets the drawer escape as an
+ * unhandled rejection — no toast, no error, the user just sees nothing happen.
+ * Guarding one shape without the other is exactly the silent-failure class this
+ * file exists to catch. */
+{
+  const panelSrc = read('src/ui/panel.js');
+  const panelLines = panelSrc.split('\n');
+  const unprotected = [];
+  for (let i = 0; i < panelLines.length; i += 1) {
+    const line = panelLines[i];
+    if (!/await\s+opts\.sync\.[a-zA-Z]+\(/.test(line)) continue;
+    /* Same-line try{...}catch wraps the call outright. */
+    if (/\btry\s*\{/.test(line)) continue;
+    /* Otherwise scan the text before this call and count try/catch pairs at the
+     * brace depth we are currently in: an unmatched `try {` means we are inside
+     * one. Counting braces alone was too crude and flagged calls that sit in a
+     * plainly visible try block. */
+    const before = panelLines.slice(0, i).join('\n');
+    const tries = (before.match(/\btry\s*\{/g) || []).length;
+    const catches = (before.match(/\}\s*catch\b/g) || []).length;
+    if (tries > catches) continue;
+    unprotected.push((i + 1) + ': ' + line.trim().slice(0, 60));
+  }
+  check('every awaited panel sync call is inside a try',
+    unprotected.length === 0,
+    'a rejecting transport would escape at — ' + unprotected.join(' | '));
+}
+
 /* Storage the panel asks the worker to keep must round-trip through a handled
  * op, or the write silently returns "Lệnh không hợp lệ" and the state is lost. */
 const bgSrc = read('extension/background.js');

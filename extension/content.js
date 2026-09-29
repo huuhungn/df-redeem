@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.7
- * Built v3.1.7 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.8
+ * Built v3.1.8 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3158,7 +3158,17 @@ function createPanel(options) {
       return undefined;
     }
 
-    const reply = await opts.sync.reportCost(String(code).toUpperCase(), parsed.value, COST_MODE);
+    /* The two transports fail differently: the app's sendMessage resolves with
+     * { ok: false }, the drawer's askBridge rejects. Reading reply.ok alone
+     * handled the app and let the drawer escape as an unhandled rejection, so
+     * a bridge timeout showed no toast at all and the cost sat in "chờ gửi"
+     * with nothing said. Normalise a rejection into the same shape. */
+    let reply;
+    try {
+      reply = await opts.sync.reportCost(String(code).toUpperCase(), parsed.value, COST_MODE);
+    } catch (error) {
+      reply = { ok: false, error: (error && error.message) || String(error) };
+    }
     if (!reply || !reply.ok) {
       if (reply && reply.skipped) {
         toast(`Đã lưu ${Costs.formatCost(parsed.value)} trên máy này — chưa bật kho chung nên không gửi lên được.`, 'warn');
@@ -4436,7 +4446,7 @@ function createPanel(options) {
     setLocal: (key, value) => askBridge('setPanelState', { key, value }),
   };
 
-  const panel = createPanel({ version: '3.1.7', target: 'extension', store, sync });
+  const panel = createPanel({ version: '3.1.8', target: 'extension', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
   window.addEventListener('message', (event) => {

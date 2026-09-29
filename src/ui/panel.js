@@ -224,7 +224,17 @@ function createPanel(options) {
       return undefined;
     }
 
-    const reply = await opts.sync.reportCost(String(code).toUpperCase(), parsed.value, COST_MODE);
+    /* The two transports fail differently: the app's sendMessage resolves with
+     * { ok: false }, the drawer's askBridge rejects. Reading reply.ok alone
+     * handled the app and let the drawer escape as an unhandled rejection, so
+     * a bridge timeout showed no toast at all and the cost sat in "chờ gửi"
+     * with nothing said. Normalise a rejection into the same shape. */
+    let reply;
+    try {
+      reply = await opts.sync.reportCost(String(code).toUpperCase(), parsed.value, COST_MODE);
+    } catch (error) {
+      reply = { ok: false, error: (error && error.message) || String(error) };
+    }
     if (!reply || !reply.ok) {
       if (reply && reply.skipped) {
         toast(`Đã lưu ${Costs.formatCost(parsed.value)} trên máy này — chưa bật kho chung nên không gửi lên được.`, 'warn');
