@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.6
- * Built v3.1.6 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.7
+ * Built v3.1.7 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3148,10 +3148,17 @@ function createPanel(options) {
     costLocal[key] = { value: parsed.value, state: 'unconfirmed', pending: true };
     costEdit = { code: null, value: '', error: '' };
     renderPresets();
-    await persistLocalCosts();
+    const savedLocally = await persistLocalCosts();
 
     if (!(opts.sync && opts.sync.reportCost)) {
-      toast(`Đã lưu chi phí ${Costs.formatCost(parsed.value)} (chỉ trên máy này).`, 'ok');
+      /* Only promise what actually happened: without durable storage the value
+       * lives in memory and is gone on reload, which is precisely what the old
+       * unconditional "đã lưu" toast hid. */
+      if (savedLocally) {
+        toast(`Đã lưu chi phí ${Costs.formatCost(parsed.value)} (chỉ trên máy này).`, 'ok');
+      } else {
+        toast(`Đang hiển thị ${Costs.formatCost(parsed.value)} nhưng chưa lưu được — tải lại trang là mất.`, 'warn');
+      }
       return undefined;
     }
 
@@ -3186,8 +3193,15 @@ function createPanel(options) {
    * forgets on refresh rather than failing. */
   async function persistLocalCosts() {
     try {
-      if (opts.sync && opts.sync.setLocal) await opts.sync.setLocal('costsLocal', costLocal);
+      if (!(opts.sync && opts.sync.setLocal)) return false;
+      /* The bridge REPORTS a rejected key as { ok: false } instead of throwing,
+       * so catching only exceptions would let a storage failure pass as success
+       * and lose the cost on reload — the same silent loss as the missing
+       * setLocal. Treat a falsy ok as a failure the caller must surface. */
+      const reply = await opts.sync.setLocal('costsLocal', costLocal);
+      return !(reply && reply.ok === false);
     } catch (_) { /* storage full or unavailable: keep the in-memory copy */ }
+    return false;
   }
 
   async function loadLocalCosts() {
@@ -4393,9 +4407,9 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.1.6', target: 'console', sync });
+  const panel = createPanel({ version: '3.1.7', target: 'console', sync });
   window.__dfRedeemPanel = panel;
   panel.open();
-  console.log('%c[DF Redeem v3.1.6]%c bảng điều khiển đã mở. Dán danh sách code vào ô, bấm Bắt đầu.',
+  console.log('%c[DF Redeem v3.1.7]%c bảng điều khiển đã mở. Dán danh sách code vào ô, bấm Bắt đầu.',
     'background:#10f79a;color:#03110d;font-weight:700;padding:2px 7px;border-radius:3px', '');
 }());

@@ -313,7 +313,7 @@ async function handlePending(request, env) {
   const listed = await env.VAULT.list({ prefix: 'pending:' });
   const rows = [];
   for (const entry of listed.keys) {
-    const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
+    const row = await readRow(env, entry.name);
     /* Judge against the *current* threshold instead of trusting the stored flag.
      *
      * `promoted` is only rewritten when a row is reported again, so rows queued
@@ -436,11 +436,28 @@ async function handleCostReport(request, env) {
 }
 
 /** Public read: confirmed costs plus a dispute flag, no reporter identities. */
+/* KV can hold a truncated write or a hand-edited value. Parsing inline lets one
+ * such row throw out of a listing loop, which the top-level handler reports as a
+ * generic 500 — so a single bad key hides every row from every user. Read the
+ * row defensively instead: skip what cannot be parsed and serve the rest. */
+async function readRow(env, name) {
+  let raw;
+  try { raw = await env.VAULT.get(name); } catch (_) { return null; }
+  if (!raw) return null;
+  try {
+    const row = JSON.parse(raw);
+    return row && typeof row === 'object' ? row : null;
+  } catch (_) {
+    console.warn('skipping unparseable KV row', name);
+    return null;
+  }
+}
+
 async function handleCosts(env) {
   const listed = await env.VAULT.list({ prefix: 'cost:', limit: 1000 });
   const rows = [];
   for (const entry of listed.keys) {
-    const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
+    const row = await readRow(env, entry.name);
     if (!row) continue;
     rows.push({
       code: row.code || entry.name.slice(5),
@@ -459,7 +476,7 @@ async function handleCostDisputes(request, env) {
   const listed = await env.VAULT.list({ prefix: 'cost:', limit: 1000 });
   const rows = [];
   for (const entry of listed.keys) {
-    const row = JSON.parse((await env.VAULT.get(entry.name)) || 'null');
+    const row = await readRow(env, entry.name);
     if (!row || row.state !== 'disputed') continue;
     rows.push({
       code: row.code || entry.name.slice(5),

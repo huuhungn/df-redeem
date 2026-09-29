@@ -420,6 +420,7 @@ const TEST_CONFIRMATIONS = 2;
       !!costRow && !('reports_detail' in costRow) && !JSON.stringify(costRow).includes('reporter'),
       JSON.stringify(costRow));
 
+
     const disputesNoAuth = await get('/cost-disputes');
     check('cost disputes require the admin token', disputesNoAuth.status === 401, 'status ' + disputesNoAuth.status);
 
