@@ -212,6 +212,21 @@
 .df .fill.s-gift_bug { background: var(--s-gift_bug); }
 .df .fill.s-invalid { background: var(--s-invalid); }
 
+/* The panel emits `<span class="dot s-${status}">` in the library rows and the
+ * history timeline, but only `.fill.s-*` was ever styled — so every dot fell
+ * through to `--primary` and success, expired and invalid all rendered the same
+ * teal. The dot is the only per-row status colour in the timeline, so the whole
+ * column was decorative rather than informative. */
+.df .dot.s-success { background: var(--s-success); }
+.df .dot.s-mine { background: var(--s-mine); }
+.df .dot.s-group_limit { background: var(--s-group_limit); }
+.df .dot.s-untried { background: var(--s-untried); }
+.df .dot.s-sys_error { background: var(--s-sys_error); }
+.df .dot.s-expired { background: var(--s-expired); }
+.df .dot.s-exhausted { background: var(--s-exhausted); }
+.df .dot.s-gift_bug { background: var(--s-gift_bug); }
+.df .dot.s-invalid { background: var(--s-invalid); }
+
 /* ── status pill ───────────────────────────────────────────────────────── */
 .df .pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -329,3 +344,24 @@
 @media (prefers-reduced-motion: reduce) {
   .df *, .df *::before, .df *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Windows high contrast throws away every background-color, so a status dot —
+ * which is nothing but a 6px coloured background — disappears entirely, and the
+ * row loses its only at-a-glance signal. Forced colours keep borders, so redraw
+ * the dot as a ring and vary its shape by status rather than its hue. The pill
+ * beside it still carries the words, so this is redundancy, not the only cue. */
+@media (forced-colors: active) {
+  .df .dot {
+    background: transparent !important;
+    border: 2px solid currentColor;
+    width: 9px; height: 9px;
+  }
+  .df .dot.s-success, .df .dot.s-mine { border-radius: 99px; }
+  .df .dot.s-expired, .df .dot.s-exhausted { border-radius: 0; }
+  .df .dot.s-invalid, .df .dot.s-sys_error, .df .dot.s-gift_bug {
+    border-radius: 0; transform: rotate(45deg);
+  }
+  /* A focus ring built from box-shadow also vanishes; force a real outline. */
+  .df :focus-visible { outline: 2px solid currentColor !important; outline-offset: 2px; }
+}
+

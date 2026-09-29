@@ -946,13 +946,14 @@ function createPanel(options) {
             <b class="pc-cost-val mono">${cost.value ? esc(Costs.formatCost(cost.value)) : '—'}</b>
             ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
             <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
+              aria-label="${cost.value ? 'Sửa' : 'Thêm'} chi phí trang bị cho preset ${esc(preset.code)}"
               title="${cost.value ? 'Sửa chi phí build Chiến Dịch này' : 'Áp preset trong game rồi nhập chi phí Chiến Dịch'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
           </div>` : `<div class="pc-cost pc-cost-na" title="Chiến Trường Toàn Diện phát sẵn trang bị, nên build này không có chi phí">
             <span class="pc-cost-label">Chi phí trang bị</span><span class="muted pc-cost-na-text">Miễn phí ở chế độ này</span>
           </div>`}
 
           <div class="pc-ft">
-            <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}">Copy</button>
+            <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}" aria-label="Copy preset ${esc(preset.code)}">Copy</button>
           </div>
         </div>`;
         }).join('')}</div>
@@ -1004,9 +1005,9 @@ function createPanel(options) {
         <div class="sharebox">
           <textarea class="share-gift" rows="7" aria-label="Danh sách mã quà để chia sẻ" readonly>${esc(gifts.map((r) => r.code).join('\n'))}</textarea>
           <div class="btnrow">
-            <button class="act" data-act="share-copy-gift">Copy</button>
-            <button class="act" data-act="share-txt-gift">Tải .txt</button>
-            <button class="act" data-act="share-csv-gift">Tải .csv</button>
+            <button class="act" data-act="share-copy-gift" aria-label="Copy danh sách gift code">Copy</button>
+            <button class="act" data-act="share-txt-gift" aria-label="Tải gift code dạng .txt">Tải .txt</button>
+            <button class="act" data-act="share-csv-gift" aria-label="Tải gift code dạng .csv">Tải .csv</button>
           </div>
         </div>
       </section>
@@ -1017,9 +1018,9 @@ function createPanel(options) {
         <div class="sharebox">
           <textarea class="share-preset" rows="7" aria-label="Danh sách preset Gunsmith để chia sẻ" readonly>${esc(presets.map((r) => `${r.weapon || r.gun || '?'}-${r.mode || '?'}-${r.code}`).join('\n'))}</textarea>
           <div class="btnrow">
-            <button class="act" data-act="share-copy-preset">Copy</button>
-            <button class="act" data-act="share-txt-preset">Tải .txt</button>
-            <button class="act" data-act="share-csv-preset">Tải .csv</button>
+            <button class="act" data-act="share-copy-preset" aria-label="Copy danh sách preset Gunsmith">Copy</button>
+            <button class="act" data-act="share-txt-preset" aria-label="Tải preset Gunsmith dạng .txt">Tải .txt</button>
+            <button class="act" data-act="share-csv-preset" aria-label="Tải preset Gunsmith dạng .csv">Tải .csv</button>
           </div>
         </div>
       </section>

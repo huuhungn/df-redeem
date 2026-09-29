@@ -212,6 +212,21 @@
 .df .fill.s-gift_bug { background: var(--s-gift_bug); }
 .df .fill.s-invalid { background: var(--s-invalid); }
 
+/* The panel emits `<span class="dot s-${status}">` in the library rows and the
+ * history timeline, but only `.fill.s-*` was ever styled — so every dot fell
+ * through to `--primary` and success, expired and invalid all rendered the same
+ * teal. The dot is the only per-row status colour in the timeline, so the whole
+ * column was decorative rather than informative. */
+.df .dot.s-success { background: var(--s-success); }
+.df .dot.s-mine { background: var(--s-mine); }
+.df .dot.s-group_limit { background: var(--s-group_limit); }
+.df .dot.s-untried { background: var(--s-untried); }
+.df .dot.s-sys_error { background: var(--s-sys_error); }
+.df .dot.s-expired { background: var(--s-expired); }
+.df .dot.s-exhausted { background: var(--s-exhausted); }
+.df .dot.s-gift_bug { background: var(--s-gift_bug); }
+.df .dot.s-invalid { background: var(--s-invalid); }
+
 /* ── status pill ───────────────────────────────────────────────────────── */
 .df .pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -329,6 +344,27 @@
 @media (prefers-reduced-motion: reduce) {
   .df *, .df *::before, .df *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Windows high contrast throws away every background-color, so a status dot —
+ * which is nothing but a 6px coloured background — disappears entirely, and the
+ * row loses its only at-a-glance signal. Forced colours keep borders, so redraw
+ * the dot as a ring and vary its shape by status rather than its hue. The pill
+ * beside it still carries the words, so this is redundancy, not the only cue. */
+@media (forced-colors: active) {
+  .df .dot {
+    background: transparent !important;
+    border: 2px solid currentColor;
+    width: 9px; height: 9px;
+  }
+  .df .dot.s-success, .df .dot.s-mine { border-radius: 99px; }
+  .df .dot.s-expired, .df .dot.s-exhausted { border-radius: 0; }
+  .df .dot.s-invalid, .df .dot.s-sys_error, .df .dot.s-gift_bug {
+    border-radius: 0; transform: rotate(45deg);
+  }
+  /* A focus ring built from box-shadow also vanishes; force a real outline. */
+  .df :focus-visible { outline: 2px solid currentColor !important; outline-offset: 2px; }
+}
+
 
 /* components.css — the view layer of the design system.
  *
@@ -519,6 +555,7 @@
 /* ── preset cards ──────────────────────────────────────────────────────── */
 .df .pgrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
 .df .pcard {
+  min-width: 0;
   display: grid; gap: 6px; padding: 9px 10px;
   border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
 }
@@ -536,13 +573,30 @@
   background: var(--bg); border: 1px solid var(--line-soft); border-radius: 5px;
   overflow-wrap: anywhere; user-select: all;
 }
-.df .pc-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+.df .pc-meta {
+  display: flex; align-items: center; gap: 6px; font-size: 10px;
+  /* min-width:0 on the children was not enough: this row is itself a flex item
+   * and .pcard is a grid item, and both default to min-width:auto. The auto
+   * minimum propagates up the chain, so the card refused to shrink to its
+   * 178px track no matter how shrinkable the leaf spans were. */
+  min-width: 0;
+}
 .df .pc-mode {
   padding: 1px 6px; border-radius: 99px; font-size: 10px;
   background: var(--bg); border: 1px solid var(--line-soft); color: var(--ink-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  /* max-width:100% resolves against the flex line, not the shrunken track, so
+   * a long mode name ("Chiến Trường Toàn Diện") still set the row's min-content.
+   * min-width:0 is what actually lets a nowrap flex item ellipsis. */
+  min-width: 0; flex: 0 1 auto;
 }
-.df .pc-by { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df .pc-by {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* The ellipsis never fired: a flex item's min-width is auto, so this refuses
+   * to shrink below its nowrap text and pushes .pc-meta's min-content to 222px
+   * — wider than the 178px grid track, so every card in the row overflowed. */
+  min-width: 0; flex: 1 1 auto;
+}
 
 /* ── equipment cost ───────────────────────────────────────────────────────────
  * The cost is the second thing a player checks after the gun name ("can I afford
@@ -596,6 +650,10 @@
   display: block; padding: 5px 7px; user-select: all;
   border: 1px dashed var(--line); border-radius: var(--r);
   background: var(--void); font-size: 11.5px;
+  /* A Gunsmith code is 19 unbroken digits with no break opportunity, so it sets
+   * the card's min-content width and every .pcard in the grid grows 13px past
+   * its track. Let the digits wrap; the box stays inside its column. */
+  overflow-wrap: anywhere;
 }
 .df .pc-ft { display: flex; align-items: center; gap: 7px; }
 .df .pc-ft .muted { flex: 1; font-size: 10px; }

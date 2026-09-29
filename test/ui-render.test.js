@@ -833,6 +833,99 @@ test('the run tab disables Bắt đầu on the redeem host but off the redeem pa
   assert(shadow.querySelector('.run-blocker'), 'the wrong-page warning should render on the landing page too');
 });
 
+test('every status the panel can emit has its own dot colour', () => {
+  /* panel.js writes `<span class="dot s-${status}">` in the library rows and the
+   * history timeline. Only `.fill.s-*` used to be styled, so all nine statuses
+   * inherited --primary and the timeline's only per-row signal was one flat
+   * teal. jsdom does not cascade shadow CSS, so assert on the stylesheet text. */
+  const theme = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'theme.css'), 'utf8');
+  const panelSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'panel.js'), 'utf8');
+  const emitted = new Set();
+  for (const m of panelSrc.matchAll(/class="dot s-\$\{([^}]+)\}/g)) emitted.add(m[1]);
+  assert(emitted.size > 0, 'expected panel.js to emit dot status classes');
+
+  /* Drive this from schema.js, not from the palette: reading theme.css to check
+   * theme.css only proves it is self-consistent. A status added to STATUSES
+   * without a colour must fail here. */
+  const schemaSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'schema.js'), 'utf8');
+  const statuses = (schemaSrc.match(/const STATUSES = Object\.freeze\(\[([^\]]+)\]/) || [])[1]
+    .split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean);
+  assert(statuses.length >= 8, 'expected the status list from schema.js, saw ' + statuses.length);
+  const noVar = statuses.filter((st) => !new RegExp('--s-' + st + ':').test(theme));
+  assert(noVar.length === 0, 'these statuses have no colour variable at all: ' + noVar.join(', '));
+  /* Having the variable is not enough — the dot rule has to consume it, which
+   * is exactly the bug: the palette was complete, .dot.s-* simply never used
+   * it and every dot inherited --primary. */
+  /* Search only the base cascade: the forced-colors block also names every
+   * status, so scanning the whole file lets a missing base rule hide behind the
+   * high-contrast override. */
+  const base = theme.split('@media (forced-colors: active)')[0];
+  const unwired = statuses.filter((st) => !base.includes('.dot.s-' + st + ' {'));
+  assert(unwired.length === 0,
+    'these statuses fall back to the default teal because .dot.s-* is unstyled: ' + unwired.join(', '));
+});
+
+test('preset cards can shrink to their grid track', () => {
+  /* .pgrid tracks are minmax(178px, 1fr), but a grid item and a flex item both
+   * default to min-width:auto. A 19-digit code and a long mode name therefore
+   * set a min-content wider than the track and 2 of 21 cards overflowed their
+   * column. Every link in the chain needs min-width:0, so assert on all of it —
+   * fixing only the leaf spans left the cards overflowing. */
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'components.css'), 'utf8');
+  /* Strip comments first: these rules are commented with the very text being
+   * asserted, so a search over the raw file passes even when the declaration
+   * is deleted. */
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleOf = (sel) => {
+    const i = css.indexOf(sel + ' {');
+    assert(i !== -1, 'missing rule for ' + sel);
+    return css.slice(i, css.indexOf('}', i));
+  };
+  for (const sel of ['.df .pcard', '.df .pc-meta', '.df .pc-mode', '.df .pc-by']) {
+    assert(/min-width:\s*0/.test(ruleOf(sel)),
+      sel + ' needs min-width:0 or the auto minimum propagates and the card overflows its track');
+  }
+  assert(/overflow-wrap:\s*anywhere/.test(ruleOf('.df .pc-code')),
+    '.pc-code holds an unbreakable 19-digit id and must be allowed to wrap');
+});
+
+test('high contrast keeps the status dot visible', () => {
+  /* forced-colors strips background-color outright, so a dot that is only a
+   * coloured background becomes invisible and the row loses its signal. */
+  const theme = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'theme.css'), 'utf8');
+  const block = theme.match(/@media \(forced-colors: active\)\s*\{[\s\S]*?\n\}/);
+  assert(block, 'theme.css needs a forced-colors block or high contrast erases every dot');
+  assert(/\.dot\s*\{[^}]*border:/.test(block[0]),
+    'the forced-colors dot must fall back to a border, which forced colours preserve');
+});
+
+test('no two buttons in a view share the same accessible name', async () => {
+  /* Share renders Copy / Tải .txt / Tải .csv twice — once for gift codes, once
+   * for presets — and every preset row repeats a bare "Copy". By name alone a
+   * screen-reader user hears the same word several times with nothing to tell
+   * the targets apart. Checked per view: the same label in two different views
+   * is fine, because only one view is ever mounted. */
+  const views = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
+  const collisions = [];
+  for (const v of views) {
+    await panel.go(v);
+    const seen = new Map();
+    panel._shadow.querySelectorAll('button').forEach((b) => {
+      if (b.offsetParent === null && b.hidden) return;
+      const name = (b.getAttribute('aria-label') || b.textContent || '').trim();
+      if (!name) return;
+      const act = b.getAttribute('data-act') || '';
+      const code = b.getAttribute('data-code') || '';
+      const target = act + '|' + code;
+      if (seen.has(name) && seen.get(name) !== target) {
+        collisions.push(v + ': "' + name + '" (' + seen.get(name) + ' vs ' + target + ')');
+      } else seen.set(name, target);
+    });
+  }
+  assert(collisions.length === 0,
+    'two different actions answer to the same spoken name: ' + collisions.join(' | '));
+});
+
 (async () => {
   for (const t of tests) {
     try { await t.fn(); console.log('  ok   ' + t.name); }
