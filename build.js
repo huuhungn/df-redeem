@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.1.4';
+const VERSION = '3.1.5';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -224,6 +224,8 @@ ${UI}
     communityPush: (rows) => askBridge('communityPush', { rows }),
     fetchCosts: () => askBridge('fetchCosts'),
     reportCost: (code, cost, mode) => askBridge('reportCost', { code, cost, mode }),
+    getLocal: (key) => askBridge('getPanelState', { key }).then((r) => (r && r.ok ? r.value : null)),
+    setLocal: (key, value) => askBridge('setPanelState', { key, value }),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -521,10 +523,17 @@ ${UI}
    * the runs the drawer mirrored into shared storage. */
   const sync = {
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
+    /* The app cannot drive the Garena form, but History here can still finish a
+     * run mirrored from the drawer, and that path snapshots the personal vault.
+     * Leaving these off made the panel skip personal sync with no message. */
+    getSettings: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'getSettings' }),
+    syncNow: (records) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'push', payload: { records: (records || []).map((r) => ({ code: r.code, status: r.status, last_tried: r.last_tried })) } }),
     mirrorAttempts: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'mirrorAttempts', payload: { rows } }),
     communityPull: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPull' }),
     fetchCosts: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'fetchCosts' }),
     reportCost: (code, cost, mode) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost, mode } }),
+    getLocal: (key) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'getPanelState', payload: { key } }).then((r) => (r && r.ok ? r.value : null)),
+    setLocal: (key, value) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'setPanelState', payload: { key, value } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
   const panel = createPanel({ version: '${VERSION}', target: 'page', surface: 'page', sync });
@@ -954,6 +963,10 @@ const SETTINGS_KEY = DFRedeemSync.SETTINGS_KEY;
 /* Shared across every surface, unlike the per-origin IndexedDB vaults. */
 const HISTORY_KEY = 'df_redeem_history_mirror';
 const HISTORY_CAP = 500;
+/* Panel-owned scratch state the worker only stores and hands back. Keeping the
+ * allowed keys explicit stops the bridge from becoming a general storage API
+ * that any page script could write settings through. */
+const PANEL_STATE_KEYS = { costsLocal: 'df_redeem_costs_local' };
 
 function service() {
   return DFRedeemSync.createSyncService({ chromeApi: chrome, fetchFn: (...a) => fetch(...a) });
@@ -1061,6 +1074,21 @@ async function handleSync(op, payload) {
   if (op === 'readMirror') {
     const bag = await svc.getLocal({ [HISTORY_KEY]: [] });
     return { ok: true, rows: bag[HISTORY_KEY] || [] };
+  }
+  /* The panel keeps its own unsynced state (costs entered here but not yet
+   * agreed by the vault) and cannot reach chrome.storage from the MAIN world,
+   * so the worker stores it under a namespaced key on the panel's behalf. */
+  if (op === 'getPanelState') {
+    const key = PANEL_STATE_KEYS[(payload && payload.key) || ''];
+    if (!key) return { ok: false, error: 'Khoá không hợp lệ.' };
+    const bag = await svc.getLocal({ [key]: null });
+    return { ok: true, value: bag[key] };
+  }
+  if (op === 'setPanelState') {
+    const key = PANEL_STATE_KEYS[(payload && payload.key) || ''];
+    if (!key) return { ok: false, error: 'Khoá không hợp lệ.' };
+    await svc.setLocal({ [key]: (payload && payload.value) || null });
+    return { ok: true };
   }
   if (op === 'push' || op === 'test') {
     if (current.syncBackend === 'none') return { ok: false, error: 'Đồng bộ đang tắt.' };

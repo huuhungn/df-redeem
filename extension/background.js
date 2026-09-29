@@ -658,6 +658,10 @@ const SETTINGS_KEY = DFRedeemSync.SETTINGS_KEY;
 /* Shared across every surface, unlike the per-origin IndexedDB vaults. */
 const HISTORY_KEY = 'df_redeem_history_mirror';
 const HISTORY_CAP = 500;
+/* Panel-owned scratch state the worker only stores and hands back. Keeping the
+ * allowed keys explicit stops the bridge from becoming a general storage API
+ * that any page script could write settings through. */
+const PANEL_STATE_KEYS = { costsLocal: 'df_redeem_costs_local' };
 
 function service() {
   return DFRedeemSync.createSyncService({ chromeApi: chrome, fetchFn: (...a) => fetch(...a) });
@@ -765,6 +769,21 @@ async function handleSync(op, payload) {
   if (op === 'readMirror') {
     const bag = await svc.getLocal({ [HISTORY_KEY]: [] });
     return { ok: true, rows: bag[HISTORY_KEY] || [] };
+  }
+  /* The panel keeps its own unsynced state (costs entered here but not yet
+   * agreed by the vault) and cannot reach chrome.storage from the MAIN world,
+   * so the worker stores it under a namespaced key on the panel's behalf. */
+  if (op === 'getPanelState') {
+    const key = PANEL_STATE_KEYS[(payload && payload.key) || ''];
+    if (!key) return { ok: false, error: 'Khoá không hợp lệ.' };
+    const bag = await svc.getLocal({ [key]: null });
+    return { ok: true, value: bag[key] };
+  }
+  if (op === 'setPanelState') {
+    const key = PANEL_STATE_KEYS[(payload && payload.key) || ''];
+    if (!key) return { ok: false, error: 'Khoá không hợp lệ.' };
+    await svc.setLocal({ [key]: (payload && payload.value) || null });
+    return { ok: true };
   }
   if (op === 'push' || op === 'test') {
     if (current.syncBackend === 'none') return { ok: false, error: 'Đồng bộ đang tắt.' };

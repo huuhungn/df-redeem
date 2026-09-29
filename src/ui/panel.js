@@ -596,7 +596,12 @@ function createPanel(options) {
    * a wrong-page mistake. Gate the control itself, and keep the guard in
    * startRun() too since the engine is also reachable via the programmatic
    * API at the bottom of this module. */
-  const onRedeemPage = () => /redeem\.df\.garena\.sg$/.test(location.hostname || '');
+  /* The host alone is not enough: redeem.df.garena.sg also serves landing and
+   * event pages that carry no redeem form. Letting Start run there marks the
+   * whole queue failed against a page that was never going to accept a code,
+   * so require the redeem document itself. */
+  const onRedeemPage = () => /redeem\.df\.garena\.sg$/.test(location.hostname || '')
+    && /cdkgarena/.test(location.pathname || '');
 
   async function startRun() {
     if (activeRun) return toast('Đang có lượt chạy.', 'warn');

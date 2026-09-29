@@ -250,7 +250,7 @@ const sandbox = {
   Error,
   document: dom.document,
   navigator: { clipboard: { writeText: async () => {} }, userAgent: 'node' },
-  location: { hostname: 'redeem.df.garena.sg', href: 'https://redeem.df.garena.sg/' },
+  location: { hostname: 'redeem.df.garena.sg', pathname: '/vi/cdkgarena.html', href: 'https://redeem.df.garena.sg/vi/cdkgarena.html' },
   localStorage: (() => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; })(),
   Blob: class { constructor(p) { this.parts = p; } },
   URL: { createObjectURL: () => 'blob:mock', revokeObjectURL: () => {} },
@@ -704,6 +704,38 @@ test('the run tab disables Bắt đầu when the tab is not on the redeem page',
   assert(isDisabled, 'Bắt đầu must be disabled off the redeem page');
   const warn = shadow.querySelector('.warn-box');
   assert(warn, 'the wrong-page warning should still render alongside the disabled control');
+});
+
+/* The redeem host also serves landing and event pages with no redeem form.
+ * Gating on hostname alone let Start run there, and every code in the queue
+ * came back failed against a page that never had a form to submit to. */
+test('the run tab disables Bắt đầu on the redeem host but off the redeem page', async () => {
+  const offDom = makeDom();
+  const offSandbox = { ...sandbox };
+  offSandbox.document = offDom.document;
+  offSandbox.location = { hostname: 'redeem.df.garena.sg', pathname: '/vi/', href: 'https://redeem.df.garena.sg/vi/' };
+  offSandbox.localStorage = (() => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
+  })();
+  offSandbox.window = offSandbox;
+  offSandbox.self = offSandbox;
+  offSandbox.globalThis = offSandbox;
+  vm.createContext(offSandbox);
+  vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault;`, offSandbox, { filename: 'bundle-landing.js' });
+
+  const OV = offSandbox.__Vault;
+  const offVault = new OV.Vault({ adapter: new OV.MemoryAdapter() });
+  const panel = offSandbox.__createPanel({ version: 'test', target: 'test', vault: offVault });
+  await panel.go('run');
+  const shadow = panel._shadow;
+  const start = shadow.querySelector('[data-act="start"]');
+  assert(start, 'start button missing from the run view');
+  const isDisabled = start.disabled === true
+    || (start._attrs && start._attrs.disabled != null)
+    || (typeof start.getAttribute === 'function' && start.getAttribute('disabled') != null);
+  assert(isDisabled, 'Bắt đầu must be disabled on the redeem host when the path has no redeem form');
+  assert(shadow.querySelector('.run-blocker'), 'the wrong-page warning should render on the landing page too');
 });
 
 (async () => {

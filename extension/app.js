@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.4
- * Built v3.1.4 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.5
+ * Built v3.1.5 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3532,7 +3532,12 @@ function createPanel(options) {
    * a wrong-page mistake. Gate the control itself, and keep the guard in
    * startRun() too since the engine is also reachable via the programmatic
    * API at the bottom of this module. */
-  const onRedeemPage = () => /redeem\.df\.garena\.sg$/.test(location.hostname || '');
+  /* The host alone is not enough: redeem.df.garena.sg also serves landing and
+   * event pages that carry no redeem form. Letting Start run there marks the
+   * whole queue failed against a page that was never going to accept a code,
+   * so require the redeem document itself. */
+  const onRedeemPage = () => /redeem\.df\.garena\.sg$/.test(location.hostname || '')
+    && /cdkgarena/.test(location.pathname || '');
 
   async function startRun() {
     if (activeRun) return toast('Đang có lượt chạy.', 'warn');
@@ -4393,13 +4398,20 @@ function createPanel(options) {
    * the runs the drawer mirrored into shared storage. */
   const sync = {
     readMirror: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'readMirror' }),
+    /* The app cannot drive the Garena form, but History here can still finish a
+     * run mirrored from the drawer, and that path snapshots the personal vault.
+     * Leaving these off made the panel skip personal sync with no message. */
+    getSettings: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'getSettings' }),
+    syncNow: (records) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'push', payload: { records: (records || []).map((r) => ({ code: r.code, status: r.status, last_tried: r.last_tried })) } }),
     mirrorAttempts: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'mirrorAttempts', payload: { rows } }),
     communityPull: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPull' }),
     fetchCosts: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'fetchCosts' }),
     reportCost: (code, cost, mode) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost, mode } }),
+    getLocal: (key) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'getPanelState', payload: { key } }).then((r) => (r && r.ok ? r.value : null)),
+    setLocal: (key, value) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'setPanelState', payload: { key, value } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
-  const panel = createPanel({ version: '3.1.4', target: 'page', surface: 'page', sync });
+  const panel = createPanel({ version: '3.1.5', target: 'page', surface: 'page', sync });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
 

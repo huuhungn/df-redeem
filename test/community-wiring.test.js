@@ -104,5 +104,36 @@ check('no error code sits in two worker buckets',
 check('400070 is treated as expired',
   /\[400070, 'expired'\]/.test(verdictSrc) && /400070: \{ status: 'EXPIRED'/.test(garenaSrc));
 
+/* ── every helper the panel calls must exist on the sync object it is given ──
+ * The unit tests stub `sync` with exactly the methods the test needs, so a
+ * panel call to a method no real target provides passes there and fails only
+ * in the browser. Local costs shipped that way: panel.js persisted them via
+ * opts.sync.setLocal, which neither the drawer nor the full-page app exposed,
+ * so every unsent cost vanished on reload with no error anywhere. */
+const panelSyncCalls = [...new Set(
+  (panelSrc.match(/opts\.sync\.(\w+)/g) || []).map((m) => m.split('.').pop()),
+)];
+check('panel sync calls were found to check', panelSyncCalls.length >= 4, panelSyncCalls.join(','));
+
+for (const [file, label] of [['extension/content.js', 'extension drawer'], ['extension/app.js', 'full-page app']]) {
+  let src;
+  try { src = read(file); } catch (_) { check(`${label} bundle exists`, false, file + ' missing — run node build.js'); continue; }
+  /* The sync object is an object literal, so a provided method appears as a
+   * `name:` key on it; that is what the panel's `opts.sync.name &&` guard sees. */
+  const missing = panelSyncCalls.filter((name) => !new RegExp('\\b' + name + ':\\s').test(src));
+  check(`${label} provides every sync method the panel calls`,
+    missing.length === 0,
+    'missing: ' + missing.join(','));
+}
+
+/* Storage the panel asks the worker to keep must round-trip through a handled
+ * op, or the write silently returns "Lệnh không hợp lệ" and the state is lost. */
+const bgSrc = read('extension/background.js');
+for (const op of ['getPanelState', 'setPanelState']) {
+  check(`background handles ${op}`,
+    new RegExp("op === '" + op + "'").test(bgSrc),
+    'no handler branch in background.js');
+}
+
 console.log(`\n${passed} passed, ${failed} failed, ${passed + failed} total`);
 process.exit(failed === 0 ? 0 : 1);
