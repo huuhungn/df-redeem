@@ -744,6 +744,29 @@ test('icon-only buttons carry a text name', async () => {
     'a glyph is not a name to a screen reader; title= alone is not announced reliably: ' + bare.join(' '));
 });
 
+test('every text entry field carries a name that survives typing', async () => {
+  /* A placeholder is not a label: it disappears on the first keystroke, so a
+   * screen-reader user who tabs back into a half-filled field hears only
+   * "edit text". A wrapping <label> counts; a sibling div does not. */
+  const views = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
+  const unnamed = [];
+  for (const v of views) {
+    await panel.go(v);
+    panel._shadow.querySelectorAll('input,textarea,select')
+      .filter((el) => (el.getAttribute('type') || '') !== 'hidden')
+      .forEach((el) => {
+        const wrapped = (function up(n) {
+          return !n ? false : n.tagName === 'LABEL' ? true : up(n.parentNode);
+        })(el.parentNode);
+        if (!el.getAttribute('aria-label') && !wrapped) {
+          unnamed.push(v + '/' + (el.tagName || '?') + ':' + (el.getAttribute('placeholder') || '(no placeholder)').slice(0, 24));
+        }
+      });
+  }
+  assert(unnamed.length === 0,
+    'a placeholder vanishes as soon as the user types; these fields then have no name: ' + unnamed.join(' | '));
+});
+
 test('the run tab disables Bắt đầu when the tab is not on the redeem page', async () => {
   const offDom = makeDom();
   const offSandbox = { ...sandbox };

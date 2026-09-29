@@ -561,7 +561,7 @@ function createPanel(options) {
             ${retryable.length ? `<button class="act tiny" data-act="q-sys-error">Garena lỗi — thử lại (${retryable.length})</button>` : ''}
             <button class="act tiny" data-act="q-clear">Xoá hàng chờ</button>
           </div>
-          <textarea class="queue" rows="7" placeholder="Mỗi dòng một mã. Dán từ bất kỳ đâu — ký tự lạ sẽ được lọc.">${esc(queued)}</textarea>
+          <textarea class="queue" rows="7" aria-label="Hàng chờ mã, mỗi dòng một mã" placeholder="Mỗi dòng một mã. Dán từ bất kỳ đâu — ký tự lạ sẽ được lọc.">${esc(queued)}</textarea>
         </div>
       </section>
 
@@ -1002,7 +1002,7 @@ function createPanel(options) {
         <div class="card-hd"><h3>Gift code chia sẻ được</h3><span class="muted">${gifts.length} mã</span></div>
         <p class="muted tight">Gồm mã Garena đã xác nhận thành công và mã tài khoản này đã nhận — người khác vẫn đổi được.</p>
         <div class="sharebox">
-          <textarea class="share-gift" rows="7" readonly>${esc(gifts.map((r) => r.code).join('\n'))}</textarea>
+          <textarea class="share-gift" rows="7" aria-label="Danh sách mã quà để chia sẻ" readonly>${esc(gifts.map((r) => r.code).join('\n'))}</textarea>
           <div class="btnrow">
             <button class="act" data-act="share-copy-gift">Copy</button>
             <button class="act" data-act="share-txt-gift">Tải .txt</button>
@@ -1015,7 +1015,7 @@ function createPanel(options) {
         <div class="card-hd"><h3>Preset Gunsmith</h3><span class="muted">${presets.length} mã</span></div>
         <p class="muted tight">Định dạng <code class="mono">Súng-Chế độ-Mã</code> để người nhận biết dán vào đâu.</p>
         <div class="sharebox">
-          <textarea class="share-preset" rows="7" readonly>${esc(presets.map((r) => `${r.weapon || r.gun || '?'}-${r.mode || '?'}-${r.code}`).join('\n'))}</textarea>
+          <textarea class="share-preset" rows="7" aria-label="Danh sách preset Gunsmith để chia sẻ" readonly>${esc(presets.map((r) => `${r.weapon || r.gun || '?'}-${r.mode || '?'}-${r.code}`).join('\n'))}</textarea>
           <div class="btnrow">
             <button class="act" data-act="share-copy-preset">Copy</button>
             <button class="act" data-act="share-txt-preset">Tải .txt</button>

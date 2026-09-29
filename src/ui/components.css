@@ -142,10 +142,16 @@
 .df .chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
 
 /* ── run controls ──────────────────────────────────────────────────────── */
-.df .fld { display: grid; gap: 3px; }
+/* A grid item defaults to min-width:auto, so these refuse to shrink below
+ * their max-content width: at 360px the column is 140px wide but the uppercase
+ * label measures 179px and spills out of a container that does not clip,
+ * printing "GIÃN CÁCH (MS)" over its neighbour. min-width:0 lets it wrap. */
+.df .fld { display: grid; gap: 3px; min-width: 0; }
+.df .fld > * { min-width: 0; }
 .df .fld > span {
   color: var(--ink-mute);
   font: 700 9.5px var(--sans); letter-spacing: .08em; text-transform: uppercase;
+  overflow-wrap: break-word;
 }
 .df .fld input {
   min-height: 29px; padding: 0 8px;
