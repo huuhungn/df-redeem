@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.1.8
- * Built v3.1.8 — local build, no remote source
+/* Delta Force Auto Redeem v3.1.9
+ * Built v3.1.9 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3074,9 +3074,9 @@ function createPanel(options) {
         </div>
         <div class="hd-acts">
           <span class="sync-chip" hidden></span>
-          <button class="ico palette-btn" data-act="palette" title="Lệnh nhanh (Ctrl+K)">⌘</button>
-          <button class="ico" data-act="refresh" title="Tải lại dữ liệu">⟳</button>
-          <button class="ico close" title="Thu gọn (Esc)">✕</button>
+          <button class="ico palette-btn" data-act="palette" aria-label="Lệnh nhanh" title="Lệnh nhanh (Ctrl+K)">⌘</button>
+          <button class="ico" data-act="refresh" aria-label="Tải lại dữ liệu" title="Tải lại dữ liệu">⟳</button>
+          <button class="ico close" aria-label="Thu gọn bảng" title="Thu gọn (Esc)">✕</button>
         </div>
       </header>
       <nav class="views" role="tablist">
@@ -3454,8 +3454,8 @@ function createPanel(options) {
           <td><span class="pill s-${r.status}">${esc(STATUS_LABELS[r.status] || r.status)}</span></td>
           <td class="num">${r.attempt_count || 0}<span class="muted sub">${esc(fmtTime(r.last_attempt))}</span></td>
           <td class="rowacts">
-            <button class="ico tiny" data-act="row-copy" data-code="${esc(r.code)}" title="Copy mã">⧉</button>
-            <button class="ico tiny" data-act="row-hist" data-code="${esc(r.code)}" title="Lịch sử mã này">◷</button>
+            <button class="ico tiny" data-act="row-copy" data-code="${esc(r.code)}" aria-label="Copy mã ${esc(r.code)}" title="Copy mã">⧉</button>
+            <button class="ico tiny" data-act="row-hist" data-code="${esc(r.code)}" aria-label="Lịch sử mã ${esc(r.code)}" title="Lịch sử mã này">◷</button>
           </td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -4014,9 +4014,24 @@ function createPanel(options) {
     if (!VIEWS.includes(name)) name = 'dashboard';
     view = name;
     store.set('view', name);
-    $$('.vtab').forEach((b) => b.classList.toggle('on', b.dataset.view === name));
+    $$('.vtab').forEach((b) => {
+      const on = b.dataset.view === name;
+      b.classList.toggle('on', on);
+      /* role="tab" without aria-selected tells a screen reader there are six
+       * tabs and none of them is current. Roving tabindex keeps Tab moving
+       * past the strip in one press instead of six. */
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    });
+    /* Every view paints into this one element, so the offset of the view we
+     * just left survives into the next: leaving Kho code halfway down opened
+     * Tổng quan already scrolled past its KPIs. Reset before the await, not
+     * after — refresh() reads the vault and a slow read would otherwise leave
+     * the outgoing view sitting at the old offset until it resolves. */
+    viewHost.scrollTop = 0;
     await refresh();
     RENDER[name]();
+    viewHost.scrollTop = 0;
     renderFooter();
     renderBadges();
   }
@@ -4159,6 +4174,26 @@ function createPanel(options) {
       codes.forEach((c) => (t.checked ? selection.add(c) : selection.delete(c)));
       renderLibrary();
     }
+  });
+
+  shell.addEventListener('keydown', (e) => {
+    /* A roving-tabindex tablist owes the user arrow keys: Tab now reaches the
+     * strip once, so without this the other five views are keyboard-dead. */
+    const tab = e.target.closest ? e.target.closest('.vtab') : null;
+    if (!tab) return;
+    const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' };
+    const move = keys[e.key];
+    if (move === undefined) return;
+    e.preventDefault();
+    const at = VIEWS.indexOf(tab.dataset.view);
+    const to = move === 'first' ? 0
+      : move === 'last' ? VIEWS.length - 1
+        : (at + move + VIEWS.length) % VIEWS.length;
+    historyCode = null;
+    go(VIEWS[to]).then(() => {
+      const next = $(`.vtab[data-view="${VIEWS[to]}"]`);
+      if (next) next.focus();
+    });
   });
 
   shell.addEventListener('click', async (e) => {
@@ -4446,7 +4481,7 @@ function createPanel(options) {
     setLocal: (key, value) => askBridge('setPanelState', { key, value }),
   };
 
-  const panel = createPanel({ version: '3.1.8', target: 'extension', store, sync });
+  const panel = createPanel({ version: '3.1.9', target: 'extension', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
   window.addEventListener('message', (event) => {

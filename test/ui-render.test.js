@@ -12,6 +12,7 @@ const vm = require('vm');
 /* ── minimal DOM ──────────────────────────────────────────────────────── */
 function makeDom() {
   let idSeq = 0;
+  let lastFocused = null;
 
   class ClassList {
     constructor(el) { this.el = el; this.set = new Set(); }
@@ -86,7 +87,7 @@ function makeDom() {
     querySelector(sel) { return walk(this, (n) => matches(n, sel)) || null; }
     querySelectorAll(sel) { const out = []; walk(this, (n) => { if (matches(n, sel)) out.push(n); return false; }); return out; }
     select() {}
-    focus() {}
+    focus() { lastFocused = this; }
   }
 
   function makeEvent(type, target) {
@@ -220,7 +221,7 @@ function makeDom() {
   document.body = body;
   Object.defineProperty(html, 'isConnected', { get: () => true });
 
-  return { document, Node, makeEvent, matches };
+  return { document, Node, makeEvent, matches, focusState: () => lastFocused };
 }
 
 /* ── harness ──────────────────────────────────────────────────────────── */
@@ -673,6 +674,76 @@ test('bundle touches no credentials beyond its own redaction guards', async () =
  * rather than a wrong-page mistake. Render on a non-redeem host and assert the
  * control is actually gated. Uses a second sandbox because the shared one pins
  * hostname to the redeem page for every other test. */
+/* ── view-switch hygiene ──────────────────────────────────────────────────
+ * Every view paints into the same .view-host element. The three checks below
+ * cover what that sharing breaks if nobody resets it, plus the keyboard
+ * contract role="tablist" silently promises.
+ */
+test('switching view resets the shared scroll position', async () => {
+  await panel.go('library');
+  const host = panel._shadow.querySelector('.view-host');
+  host.scrollTop = 1200;
+  await panel.go('dashboard');
+  assert(host.scrollTop === 0,
+    'opening a view must start at its top, not mid-way through the view you left (got ' + host.scrollTop + ')');
+});
+
+test('scroll resets even while the vault read is still pending', async () => {
+  /* go() awaits refresh() before it paints. A reset placed only after that
+   * await leaves the outgoing view frozen at the old offset for as long as the
+   * read takes — invisible in a test with an instant in-memory vault, plainly
+   * visible on a cold IndexedDB. Hold the read open and assert mid-flight. */
+  await panel.go('library');
+  const host = panel._shadow.querySelector('.view-host');
+  host.scrollTop = 1200;
+  const realAll = vault.all.bind(vault);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  Object.defineProperty(vault, 'all', { configurable: true, value: async (...a) => { await gate; return realAll(...a); } });
+  const nav = panel.go('dashboard');
+  await new Promise((r) => setTimeout(r, 5));
+  const during = host.scrollTop;
+  release();
+  await nav;
+  Object.defineProperty(vault, 'all', { configurable: true, value: realAll });
+  assert(during === 0,
+    'the view must not stay scrolled while its data loads (got ' + during + ')');
+});
+
+test('tabs expose selection and a roving tabindex', async () => {
+  await panel.go('library');
+  const tabs = panel._shadow.querySelectorAll('.vtab');
+  const sel = tabs.filter((t) => t.getAttribute('aria-selected') === 'true');
+  assert(sel.length === 1, 'exactly one tab must be aria-selected, got ' + sel.length);
+  assert(sel[0].dataset.view === 'library', 'the selected tab must be the open view');
+  const reachable = tabs.filter((t) => t.tabIndex === 0);
+  assert(reachable.length === 1,
+    'a tablist takes one Tab stop, not one per tab (got ' + reachable.length + ')');
+});
+
+test('arrow keys move between views', async () => {
+  await panel.go('dashboard');
+  const shadow = panel._shadow;
+  const first = shadow.querySelector('.vtab');
+  const ev = dom.makeEvent('keydown', first);
+  ev.key = 'ArrowRight';
+  first.dispatchEvent(ev);
+  await new Promise((r) => setTimeout(r, 10));
+  const open = shadow.querySelectorAll('.vtab').find((t) => t.getAttribute('aria-selected') === 'true');
+  assert(open && open.dataset.view === panel._views[1],
+    'ArrowRight must open the next view, got ' + (open && open.dataset.view));
+});
+
+test('icon-only buttons carry a text name', async () => {
+  const shadow = panel._shadow;
+  const bare = shadow.querySelectorAll('button')
+    .filter((b) => (b.textContent || '').trim().length <= 2)
+    .filter((b) => !b.getAttribute('aria-label'))
+    .map((b) => (b.textContent || '').trim() || '(empty)');
+  assert(bare.length === 0,
+    'a glyph is not a name to a screen reader; title= alone is not announced reliably: ' + bare.join(' '));
+});
+
 test('the run tab disables Bắt đầu when the tab is not on the redeem page', async () => {
   const offDom = makeDom();
   const offSandbox = { ...sandbox };
@@ -723,6 +794,7 @@ test('the run tab disables Bắt đầu on the redeem host but off the redeem pa
   offSandbox.globalThis = offSandbox;
   vm.createContext(offSandbox);
   vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault;`, offSandbox, { filename: 'bundle-landing.js' });
+
 
   const OV = offSandbox.__Vault;
   const offVault = new OV.Vault({ adapter: new OV.MemoryAdapter() });
