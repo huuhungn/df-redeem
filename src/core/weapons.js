@@ -4,9 +4,10 @@
  * code. That string cannot be trusted to group by: the live data contains
  * "EasyB AS Val Assault Rifle" and "Upstairs-Pirate-9890 AKS-74 Assault Rifle"
  * (a Reddit author's handle glued onto the gun), "Súng Trường Xạ Thủ SVCH"
- * (Vietnamese for a gun the catalogue lists in English), and "Tay Đen" (not a
- * Delta Force weapon at all). Grouping on the raw string produced 18 buckets
- * for 20 presets, which is not a grouping.
+ * "Súng Trường Xạ Thủ SVCH" (Vietnamese for a gun the catalogue lists in
+ * English), and a community shorthand "Tay Đen" (now resolved to Thompson
+ * Submachine Gun). Grouping on the raw string produced 18 buckets for 20
+ * presets, which is not a grouping.
  *
  * So we resolve the free text against this catalogue instead, and keep the
  * original string for display. Names and classes are from the Delta Force wiki
@@ -75,7 +76,7 @@ const WEAPONS = [
   { name: 'Vityaz Submachine Gun', cls: 'smg', aliases: ['Vityaz'] },
   { name: 'QCQ171 Submachine Gun', cls: 'smg', aliases: ['QCQ171', 'QCQ-171'] },
   { name: 'MK4 Submachine Gun', cls: 'smg', aliases: ['MK4', 'MK-4'] },
-  { name: 'Thompson Submachine Gun', cls: 'smg', aliases: ['Thompson'] },
+  { name: 'Thompson Submachine Gun', cls: 'smg', aliases: ['Thompson', 'Tay Đen', 'Thompson Submachine Gun (Tay Đen)'] },
   /* Machine guns */
   { name: 'M249 Light Machine Gun', cls: 'lmg', aliases: ['M249'] },
   { name: 'QJB 201 Light Machine Gun', cls: 'lmg', aliases: ['QJB 201', 'QJB201'] },

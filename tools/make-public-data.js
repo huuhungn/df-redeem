@@ -66,8 +66,10 @@ const presets = (seed.presets || [])
      * by players, so it carries its agreement state rather than posing as a fact:
      * an unconfirmed number must not look the same as one several users agree on.
      * Presets with no cost on file omit both keys instead of publishing a 0,
-     * which would read as "this build is free". */
-    ...(Number(row.cost) > 0
+     * which would read as "this build is free". Cost exists only in Operations
+     * (Chiến Dịch): Warfare hands out its loadouts, so a price there would be
+     * meaningless and must not travel even if a local row somehow carries one. */
+    ...(Number(row.cost) > 0 && /chiến dịch/i.test(String(row.mode || ''))
       ? { cost: Number(row.cost), cost_state: String(row.cost_state || 'unconfirmed') }
       : {}),
   }))

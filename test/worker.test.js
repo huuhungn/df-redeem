@@ -382,31 +382,34 @@ const TEST_CONFIRMATIONS = 2;
      * live Worker is the wiring: does a report reach KV, does the public read
      * withhold reporter identities, and is the admin surface actually gated. */
     const COST_CODE = 'DFCOST0000001';
-    const costA = await post('/cost', { code: COST_CODE, cost: '295426', install_id: '11111111-1111-4111-8111-111111111111' }, asClient('10.0.30.1'));
+    const costA = await post('/cost', { code: COST_CODE, cost: '295426', mode: 'Chiến Dịch Sinh Tồn', install_id: '11111111-1111-4111-8111-111111111111' }, asClient('10.0.30.1'));
     check('a first cost report is accepted',
       costA.status === 200 && costA.json.cost === 295426 && costA.json.state === 'unconfirmed',
       JSON.stringify(costA.json));
 
-    const costB = await post('/cost', { code: COST_CODE, cost: '290K', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
+    const costB = await post('/cost', { code: COST_CODE, cost: '290K', mode: 'Chiến Dịch Sinh Tồn', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
     check('a second agreeing report confirms without admin action',
       costB.status === 200 && costB.json.state === 'confirmed', JSON.stringify(costB.json));
     check('confirmation keeps the precise reading, not the rounded one',
       costB.json.cost === 295426, String(costB.json.cost));
 
-    const costDup = await post('/cost', { code: COST_CODE, cost: '295426', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
+    const costDup = await post('/cost', { code: COST_CODE, cost: '295426', mode: 'Chiến Dịch Sinh Tồn', install_id: '22222222-2222-4222-8222-222222222222' }, asClient('10.0.30.2'));
     check('re-reporting an unchanged cost writes nothing',
       costDup.status === 200 && costDup.json.unchanged === true, JSON.stringify(costDup.json));
 
-    const costC = await post('/cost', { code: COST_CODE, cost: '412000', install_id: '33333333-3333-4333-8333-333333333333' }, asClient('10.0.30.3'));
+    const costC = await post('/cost', { code: COST_CODE, cost: '412000', mode: 'Chiến Dịch Sinh Tồn', install_id: '33333333-3333-4333-8333-333333333333' }, asClient('10.0.30.3'));
     check('a disagreeing report escalates to disputed',
       costC.status === 200 && costC.json.state === 'disputed', JSON.stringify(costC.json));
     check('a dispute still serves a usable leading value',
       costC.json.cost === 295426, String(costC.json.cost));
 
-    const badCost = await post('/cost', { code: COST_CODE, cost: 'abc', install_id: '44444444-4444-4444-8444-444444444444' }, asClient('10.0.30.4'));
+    const badCost = await post('/cost', { code: COST_CODE, cost: 'abc', mode: 'Chiến Dịch Sinh Tồn', install_id: '44444444-4444-4444-8444-444444444444' }, asClient('10.0.30.4'));
     check('a non-numeric cost is refused', badCost.status === 400, 'status ' + badCost.status);
 
-    const badCodeCost = await post('/cost', { code: '!!', cost: '1000' }, asClient('10.0.30.5'));
+    const wrongModeCost = await post('/cost', { code: COST_CODE, cost: '1000', mode: 'Havoc Warfare', install_id: '55555555-5555-4555-8555-555555555555' }, asClient('10.0.30.5'));
+    check('a Warfare cost is refused even when posted directly', wrongModeCost.status === 400, 'status ' + wrongModeCost.status);
+
+    const badCodeCost = await post('/cost', { code: '!!', cost: '1000', mode: 'Chiến Dịch Sinh Tồn' }, asClient('10.0.30.5'));
     check('a malformed code is refused by /cost', badCodeCost.status === 400, 'status ' + badCodeCost.status);
 
     const publicCosts = await get('/costs');

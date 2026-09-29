@@ -192,6 +192,12 @@ function createPanel(options) {
    * "chờ gửi", so the user's measurement work is never thrown away by a network
    * blip. */
   async function saveCost(code) {
+    /* Cost reporting is only meaningful in Operations. Do not let a stale cloned
+     * button, automation, or the programmatic panel API create a Warfare cost. */
+    const preset = cache.presets.find((row) => String(row.code).toUpperCase() === String(code).toUpperCase());
+    if (!preset || !costEligible(preset)) {
+      return toast('Chi phí chỉ áp dụng cho preset Chiến Dịch (Thoát Hiểm).', 'warn');
+    }
     const input = $('.pc-costedit .costin');
     const raw = input ? input.value : costEdit.value;
     const parsed = Costs.parseCost(raw);
@@ -200,7 +206,7 @@ function createPanel(options) {
       return renderPresets();
     }
 
-    const key = String(code).toUpperCase();
+    const key = costKey(preset);
     costLocal[key] = { value: parsed.value, state: 'unconfirmed', pending: true };
     costEdit = { code: null, value: '', error: '' };
     renderPresets();
@@ -211,7 +217,7 @@ function createPanel(options) {
       return undefined;
     }
 
-    const reply = await opts.sync.reportCost(key, parsed.value);
+    const reply = await opts.sync.reportCost(String(code).toUpperCase(), parsed.value, COST_MODE);
     if (!reply || !reply.ok) {
       if (reply && reply.skipped) {
         toast(`Đã lưu ${Costs.formatCost(parsed.value)} trên máy này — chưa bật kho chung nên không gửi lên được.`, 'warn');
@@ -516,10 +522,11 @@ function createPanel(options) {
     const queued = store.get('queue', '');
 
     viewHost.innerHTML = `<div class="pad">
-      ${onPage ? '' : `<div class="warn-box">
-        <b>Không ở trang đổi code.</b>
-        <p>Tab này cần mở tại <code class="mono">redeem.df.garena.sg/vi/cdkgarena.html</code> và đã đăng nhập.</p>
-        <button class="act tiny" data-act="open-redeem">Mở trang đổi code →</button>
+      ${onPage ? '' : `<div class="warn-box run-blocker" role="alert">
+        <span class="warn-mark" aria-hidden="true">!</span>
+        <div><b>Chưa thể chạy đổi code ở tab này</b>
+        <p>Mở <code class="mono">redeem.df.garena.sg/vi/cdkgarena.html</code>, đăng nhập Garena, rồi chạy lại tại đó. Nút Bắt đầu đã được khoá để tránh báo lỗi sai cho cả hàng chờ.</p>
+        <button class="act tiny warn-cta" data-act="open-redeem">Mở trang đổi code →</button></div>
       </div>`}
 
       <section class="card">
@@ -789,6 +796,15 @@ function createPanel(options) {
       STATES: {},
     };
 
+  /* Cost belongs to one build in Hazard Operations (the Vietnamese client calls
+   * it Chiến Dịch / Thoát Hiểm). The same gun can have many build codes, and
+   * Warfare's free loadout has no meaningful purchase price. Key by the code,
+   * not weapon name, then reject non-Operations reports at the Worker boundary
+   * after the client sends the mode it displayed. */
+  const COST_MODE = 'Chiến Dịch Sinh Tồn';
+  const costEligible = (preset) => canonicalMode(preset && preset.mode) === COST_MODE;
+  const costKey = (preset) => String((preset && preset.code) || '').toUpperCase();
+
   /* A preset's cost can come from three places, in order of authority:
    *   1. the community record pulled from the Worker (agreed by several users)
    *   2. the bundled data file (shipped with the build)
@@ -796,7 +812,7 @@ function createPanel(options) {
    * The local unsynced value wins for display so editing feels immediate, with
    * its pending state visible rather than silently overwritten on next pull. */
   function costFor(preset) {
-    const code = String(preset && preset.code || '').toUpperCase();
+    const code = costKey(preset);
     const local = costLocal[code];
     const remote = (cache.costs && cache.costs[code]) || null;
     const bundled = preset && preset.cost
@@ -887,21 +903,23 @@ function createPanel(options) {
           </div>
 
           ${editing ? `<div class="pc-costedit">
-            <label class="fld"><span>Chi phí trang bị</span>
+            <label class="fld"><span>Chi phí trang bị · Chiến Dịch</span>
               <input class="costin mono" inputmode="numeric" value="${esc(costEdit.value)}"
                 placeholder="ví dụ 295426 hoặc 290K" aria-label="Chi phí trang bị"></label>
             <div class="btnrow tight">
               <button class="act tiny primary" data-act="cost-save" data-code="${esc(preset.code)}">Lưu</button>
               <button class="act tiny ghost" data-act="cost-cancel">Thôi</button>
             </div>
-            <p class="muted tiny cost-hint">Số bạn nhập sẽ gửi lên kho chung. Người thứ hai báo trùng số là xác nhận; khác số thì chuyển sang chờ phê duyệt.</p>
+            <p class="muted tiny cost-hint">Chỉ áp cho build Chiến Dịch này. Số được đối chiếu theo mã build, không theo tên súng.</p>
             ${costEdit.error ? `<p class="bad tiny">${esc(costEdit.error)}</p>` : ''}
-          </div>` : `<div class="pc-cost ${cost.value ? 'has' : 'none'}">
-            <span class="pc-cost-label">Chi phí</span>
+          </div>` : costEligible(preset) ? `<div class="pc-cost ${cost.value ? 'has' : 'none'}">
+            <span class="pc-cost-label">Chi phí trang bị</span>
             <b class="pc-cost-val mono">${cost.value ? esc(Costs.formatCost(cost.value)) : '—'}</b>
             ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
             <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
-              title="${cost.value ? 'Sửa chi phí' : 'Áp preset trong game rồi nhập số vào đây'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
+              title="${cost.value ? 'Sửa chi phí build Chiến Dịch này' : 'Áp preset trong game rồi nhập chi phí Chiến Dịch'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
+          </div>` : `<div class="pc-cost pc-cost-na" title="Chi phí chỉ áp dụng cho preset Chiến Dịch (Thoát Hiểm)">
+            <span class="pc-cost-label">Chi phí</span><span class="muted pc-cost-na-text">Chỉ Chiến Dịch</span>
           </div>`}
 
           <div class="pc-ft">
@@ -1200,7 +1218,14 @@ function createPanel(options) {
     if (act === 'fchip') { libFilter.status = btn.dataset.k; libPage = 0; return renderLibrary(); }
     if (act === 'fclear') { libFilter = { status: 'all', q: '', sort: libFilter.sort }; libPage = 0; return renderLibrary(); }
     /* presets */
-    if (act === 'pchip') { presetFilter.cls = btn.dataset.k; return renderPresets(); }
+    if (act === 'pchip') {
+      /* The full-page app replays a click from a cloned card back into this
+       * shadow tree. Multiple chips share data-act, so code-only matching always
+       * selected the FIRST chip ("Tất cả") and made every filter look dead.
+       * Match its class key too, then render the same state the user clicked. */
+      presetFilter.cls = btn.dataset.k || 'all';
+      return renderPresets();
+    }
     if (act === 'pclear') { presetFilter = { cls: 'all', q: '' }; return renderPresets(); }
     /* cost editing — one card at a time, see costEdit */
     if (act === 'cost-edit') {

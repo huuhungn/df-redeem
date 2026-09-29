@@ -63,6 +63,19 @@ const check = (name, ok, detail) => {
   /* A blocked codes write must not strand an unrelated preset change. */
   check('presets still publish even when the codes write is blocked',
     fs.existsSync(PRESETS_FILE) && JSON.parse(fs.readFileSync(PRESETS_FILE, 'utf8')).presets.length > 0);
+
+  /* Equipment cost is an Operations-only concept: Warfare issues its loadouts,
+   * so a published price there would tell other clients to charge for something
+   * the game gives away. The filter lives in the generator, not only in the UI. */
+  const presetDoc = JSON.parse(fs.readFileSync(PRESETS_FILE, 'utf8'));
+  const priced = (presetDoc.presets || []).filter((row) => row.cost !== undefined);
+  check('published cost is confined to Operations presets',
+    priced.every((row) => /chiến dịch/i.test(String(row.mode || ''))),
+    JSON.stringify(priced.map((row) => `${row.code}:${row.mode}`)));
+  check('a published cost always carries its agreement state',
+    priced.every((row) => typeof row.cost_state === 'string' && row.cost_state),
+    JSON.stringify(priced.map((row) => row.cost_state)));
+
   completed = true;
 } catch (error) {
   check('public data generation completes', false, String(error.stderr || error.message || error));

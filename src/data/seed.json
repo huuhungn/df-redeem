@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generated_at": "2026-09-25T15:15:00.000Z",
-  "note": "Seed data: 317 gift-code results from the 2026-09-25 live run, 16 user weapon presets, 4 community presets.",
+  "note": "Seed data: 317 gift-code results from the 2026-09-25 live run, 16 user weapon presets, 4 legacy community presets.",
   "codes": [
     {
       "code": "DF1314754",
@@ -4292,13 +4292,14 @@
     },
     {
       "code": "6L8UK300A8JTQS5OHR522",
-      "weapon": "Tay Đen",
+      "weapon": "Thompson Submachine Gun (Tay Đen)",
       "mode": "Chiến Dịch (Thoát Hiểm)",
       "author": "user",
       "format": "base32-21",
       "verified": true,
-      "source": "file:giftcode delta force chua loc trung.txt",
-      "first_seen": "2026-09-25T15:15:00.000Z"
+      "source": "file:giftcode delta force chua loc trung.txt; source label confirmed by Vietnam community post indexed 2026-09-28",
+      "first_seen": "2026-09-25T15:15:00.000Z",
+      "notes": "Nhãn Tay Đen là build Thompson; mã chia sẻ base32-21 hiện hành."
     },
     {
       "code": "6LCTUP00AHP1JR9CHG3OI",
@@ -4448,44 +4449,44 @@
       "weapon": "AKS-74 Assault Rifle",
       "mode": "Havoc Warfare",
       "author": "/u/YareYareDaze88",
-      "format": "numeric-19",
+      "format": "numeric-19-legacy",
       "verified": false,
       "source": "reddit:r/deltaforce/1enm9pp",
       "first_seen": "2026-09-25T15:15:00.000Z",
-      "notes": "Dinh dang cu 2024; kha nang cao khong con nhap duoc"
+      "notes": "Preset Hop Chiến 2024 đã được Reddit lập chỉ mục đúng theo súng/chế độ; giữ để tra cứu, nhưng ứng dụng hiện tại có thể không còn nhận định dạng mã cũ này."
     },
     {
       "code": "5620492390792957637",
       "weapon": "AKS-74 Assault Rifle",
       "mode": "Havoc Warfare",
       "author": "/u/Upstairs-Pirate-9890",
-      "format": "numeric-19",
+      "format": "numeric-19-legacy",
       "verified": false,
       "source": "reddit:r/deltaforce/1enm9pp",
       "first_seen": "2026-09-25T15:15:00.000Z",
-      "notes": "Dinh dang cu 2024; kha nang cao khong con nhap duoc"
+      "notes": "Preset Hop Chiến 2024 đã được Reddit lập chỉ mục đúng theo súng/chế độ; giữ để tra cứu, nhưng ứng dụng hiện tại có thể không còn nhận định dạng mã cũ này."
     },
     {
       "code": "5620492382203032302",
       "weapon": "Upstairs-Pirate-9890 AKS-74 Assault Rifle",
       "mode": "Tactical Turmoil",
       "author": "/u/Spezzare",
-      "format": "numeric-19",
+      "format": "numeric-19-legacy",
       "verified": false,
       "source": "reddit:r/deltaforce/1enm9pp",
       "first_seen": "2026-09-25T15:15:00.000Z",
-      "notes": "Dinh dang cu 2024; kha nang cao khong con nhap duoc"
+      "notes": "Preset Hop Chiến 2024 đã được Reddit lập chỉ mục đúng theo súng/chế độ; giữ để tra cứu, nhưng ứng dụng hiện tại có thể không còn nhận định dạng mã cũ này."
     },
     {
       "code": "5620492343548352708",
       "weapon": "UZI Submachine Gun",
       "mode": "Havoc Warfare",
       "author": "/u/Sluiskampert",
-      "format": "numeric-19",
+      "format": "numeric-19-legacy",
       "verified": false,
       "source": "reddit:r/deltaforce/1enm9pp",
       "first_seen": "2026-09-25T15:15:00.000Z",
-      "notes": "Dinh dang cu 2024; kha nang cao khong con nhap duoc"
+      "notes": "Preset Hop Chiến 2024 đã được Reddit lập chỉ mục đúng theo súng/chế độ; giữ để tra cứu, nhưng ứng dụng hiện tại có thể không còn nhận định dạng mã cũ này."
     }
   ],
   "updated_at": "2026-09-25T10:10:00.000Z",

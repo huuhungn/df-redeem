@@ -598,8 +598,15 @@ const DFRedeemSync = (function attachSync(root) {
     /* Push one measured cost. Deliberately one-at-a-time rather than batched:
      * costs are typed by hand one card at a time, so a batch endpoint would add
      * a queue to flush and a partial-failure story for no real gain. */
-    async function reportCost(code, cost, override) {
-      try {
+    async function reportCost(code, cost, mode, override) {
+    /* Backward-compatible call shape for direct integrations that used
+     * reportCost(code, cost, settings) before mode was introduced. Such callers
+     * cannot report a price now: mode is required at the Worker boundary. */
+    if (mode && typeof mode === 'object' && override === undefined) {
+      override = mode;
+      mode = '';
+    }
+    try {
         const settings = override || (await getSettings());
         if (settings && settings.communityEnabled === false) return { ok: false, skipped: 'disabled' };
         const urls = costEndpoints(settings);
@@ -609,8 +616,9 @@ const DFRedeemSync = (function attachSync(root) {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           /* Same minimal payload discipline as reportOutcomes: the code, the
-           * number, and a random per-install id. No account, no timestamp. */
-          body: JSON.stringify({ install_id: await installId(), code: String(code).trim(), cost }),
+           * number, the mode that makes this price meaningful, and a random
+           * per-install id. No account or timestamp. */
+          body: JSON.stringify({ install_id: await installId(), code: String(code).trim(), cost, mode: String(mode || '').trim() }),
         });
         let doc = null;
         try { doc = await response.json(); } catch { /* non-JSON error body */ }
@@ -719,7 +727,7 @@ async function handleSync(op, payload) {
     return { ok: true, costs: result.costs, count: Number(result.count || 0) };
   }
   if (op === 'reportCost') {
-    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, current);
+    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, payload && payload.mode, current);
     return {
       ok: Boolean(result.ok),
       cost: Number(result.cost || 0),

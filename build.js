@@ -223,7 +223,7 @@ ${UI}
     communityPull: () => askBridge('communityPull'),
     communityPush: (rows) => askBridge('communityPush', { rows }),
     fetchCosts: () => askBridge('fetchCosts'),
-    reportCost: (code, cost) => askBridge('reportCost', { code, cost }),
+    reportCost: (code, cost, mode) => askBridge('reportCost', { code, cost, mode }),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -524,7 +524,7 @@ ${UI}
     mirrorAttempts: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'mirrorAttempts', payload: { rows } }),
     communityPull: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPull' }),
     fetchCosts: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'fetchCosts' }),
-    reportCost: (code, cost) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost } }),
+    reportCost: (code, cost, mode) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'reportCost', payload: { code, cost, mode } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
   };
   const panel = createPanel({ version: '${VERSION}', target: 'page', surface: 'page', sync });
@@ -565,7 +565,14 @@ ${UI}
     if (act === 'goto-share') return show('share');
     if (act === 'goto-history') return show('history');
     if (act === 'open-redeem') { window.open('https://redeem.df.garena.sg/vi/cdkgarena.html', '_blank'); return; }
-    const twin = panel._shadow.querySelector('[data-act="' + act + '"]' + (btn.dataset.code ? '[data-code="' + btn.dataset.code + '"]' : ''));
+    /* Most actions are unique. Filter chips are not: all carry data-act="pchip"
+     * and differ by data-k. Preserve every identity field that affects dispatch;
+     * otherwise the cloned page always replays a chip click onto the first
+     * shadow button ("Tất cả"), so the visible filter never changes. */
+    const twinSelector = '[data-act="' + act + '"]'
+      + (btn.dataset.code ? '[data-code="' + btn.dataset.code + '"]' : '')
+      + (btn.dataset.k ? '[data-k="' + btn.dataset.k + '"]' : '');
+    const twin = panel._shadow.querySelector(twinSelector);
     if (twin) { twin.click(); setTimeout(() => show(panel._views.find((v) => document.querySelector('.side-nav .on').dataset.view === v)), 30); }
   });
   host.addEventListener('input', (e) => {
@@ -1016,7 +1023,7 @@ async function handleSync(op, payload) {
     return { ok: true, costs: result.costs, count: Number(result.count || 0) };
   }
   if (op === 'reportCost') {
-    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, current);
+    const result = await svc.reportCost((payload && payload.code) || '', payload && payload.cost, payload && payload.mode, current);
     return {
       ok: Boolean(result.ok),
       cost: Number(result.cost || 0),

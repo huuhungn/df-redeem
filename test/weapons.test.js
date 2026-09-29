@@ -75,14 +75,14 @@ eq('misfiled class lands in the right section', classifyPreset({ weapon: 'MK47 A
 
 /* ── unresolvable input ──────────────────────────────────────────────────── */
 
-/* "Tay Đen" is not a Delta Force weapon. It must NOT be silently mapped onto
- * something plausible: it goes to the unknown bucket with the original text
- * preserved, so the preset stays usable and visibly unclassified. */
+/* Tay Đen has been verified as the community label for a Thompson build. Keep
+ * the alias to make older imported rows resolve, while preserving it in the
+ * display label of the seed row so users can recognize their build. */
 const tayDen = classifyPreset({ weapon: 'Tay Đen' });
-eq('unknown weapon goes to the unknown bucket', tayDen.cls, 'unknown');
-eq('unknown weapon keeps its original text', tayDen.weapon, 'Tay Đen');
-eq('unknown weapon reports the raw string', tayDen.raw, 'Tay Đen');
-ok('unknown weapon has no canonical name', tayDen.canonical === null, `got ${tayDen.canonical}`);
+eq('Tay Đen resolves to the Thompson class', tayDen.cls, 'smg');
+eq('Tay Đen resolves to Thompson Submachine Gun', tayDen.weapon, 'Thompson Submachine Gun');
+eq('Tay Đen keeps its submitted text as raw evidence', tayDen.raw, 'Tay Đen');
+eq('Tay Đen has a canonical name', tayDen.canonical, 'Thompson Submachine Gun');
 
 const blank = classifyPreset({ weapon: '' });
 eq('empty weapon goes to the unknown bucket', blank.cls, 'unknown');

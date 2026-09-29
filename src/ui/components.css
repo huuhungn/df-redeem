@@ -69,7 +69,29 @@
 .df .cta .muted { display: block; margin-top: 2px; font-size: 11px; }
 .df .cta .act { flex: none; }
 .df .info-box { border-left-color: var(--sky); }
+/* Off-page redemption is a hard blocker, not an advisory. Give it a distinct
+ * alert silhouette: a high-contrast amber rail, a clear symbol, and one obvious
+ * recovery action. This is deliberately stronger than ordinary form warnings
+ * because an attempted run otherwise produces false "dead code" failures. */
 .df .warn-box { border-left-color: var(--amber); }
+.df .warn-box.run-blocker {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 14px 15px 14px 11px;
+  border-color: color-mix(in srgb, var(--amber) 56%, var(--line));
+  border-left: 5px solid var(--amber);
+  background: linear-gradient(100deg, rgba(244,184,65,.15), rgba(244,184,65,.045) 58%, var(--panel));
+  box-shadow: inset 0 1px 0 rgba(255,218,132,.13), 0 7px 24px rgba(0,0,0,.14);
+}
+.df .warn-mark {
+  display: grid; place-items: center; flex: 0 0 23px; height: 23px;
+  border: 1px solid var(--amber); border-radius: 50%; color: #170f02;
+  background: var(--amber); font: 900 15px/1 var(--mono);
+}
+.df .run-blocker > div { min-width: 0; }
+.df .run-blocker b { color: #ffe4a0; font-size: 13px; letter-spacing: .01em; }
+.df .run-blocker p { max-width: 780px; margin-bottom: 10px; color: var(--ink); font-size: 12px; line-height: 1.55; }
+.df .run-blocker .warn-cta { border-color: color-mix(in srgb, var(--amber) 65%, var(--line)); color: #ffe4a0; }
+.df .run-blocker .warn-cta:hover:not([disabled]) { background: rgba(244,184,65,.14); border-color: var(--amber); }
 .df .info-box b, .df .warn-box b { display: block; margin-bottom: 3px; }
 .df .info-box p, .df .warn-box p { margin: 0 0 8px; color: var(--ink-dim); font-size: 11.5px; }
 .df .info-box p:last-child, .df .warn-box p:last-child { margin-bottom: 0; }

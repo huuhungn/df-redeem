@@ -271,7 +271,8 @@ vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__
  * Hardcoding it meant every legitimately added preset broke five unrelated
  * assertions, which trains you to edit the number instead of reading the
  * failure — exactly the wrong reflex for a data-quality suite. */
-const SEED_PRESETS = (sandbox.__SEED && sandbox.__SEED.presets ? sandbox.__SEED.presets.length : 0);
+const SEED_PRESET_ROWS = (sandbox.__SEED && sandbox.__SEED.presets) || [];
+const SEED_PRESETS = SEED_PRESET_ROWS.length;
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -417,16 +418,26 @@ test('preset class chips filter the grid', async () => {
   assert(sd.querySelectorAll('.pcard').length === SEED_PRESETS, 'clearing should restore all presets');
 });
 
+test('page-surface filter replay targets the clicked chip instead of the first chip', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'build.js'), 'utf8');
+  assert(source.includes("+ (btn.dataset.k ? '[data-k=\"' + btn.dataset.k + '\"]' : '')"),
+    'page clone must preserve data-k when replaying a filter click');
+});
+
 test('equipment cost renders with its agreement state and an edit affordance', async () => {
   await panel.go('presets');
   const sd = panel._shadow;
 
-  /* Every card offers the cost row, so contributing is discoverable rather than
-   * hidden behind a hover or a menu. */
+  /* Costs are only shown for Operations/Chiến Dịch builds. Warfare has a
+   * deliberately non-editable explanation, preventing users from treating a
+   * free loadout as a price and proving that a gun can still have many codes. */
   const rows = sd.querySelectorAll('.pc-cost');
-  assert(rows.length === SEED_PRESETS, `every preset needs a cost row, got ${rows.length}`);
-  assert(sd.querySelectorAll('[data-act="cost-edit"]').length === SEED_PRESETS,
-    'every preset needs a cost edit button');
+  const priced = rows.filter((row) => !row.classList.contains('pc-cost-na'));
+  const notApplicable = rows.filter((row) => row.classList.contains('pc-cost-na'));
+  const operations = SEED_PRESET_ROWS.filter((preset) => /Chiến Dịch/i.test(preset.mode));
+  assert(priced.length === operations.length, `only Operations presets may show editable cost: ${priced.length}`);
+  assert(notApplicable.length === SEED_PRESETS - operations.length, `Warfare presets need a not-applicable cost row: ${notApplicable.length}`);
+  assert(priced.every((row) => row.querySelector('[data-act="cost-edit"]')), 'every Operations row needs a cost editor');
 
   /* The seeded MK4 ships a measured cost, so it must render formatted rather
    * than as a raw integer or a placeholder. */

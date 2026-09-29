@@ -376,8 +376,11 @@ async function handleHealth(env) {
 
 /* ── equipment costs ────────────────────────────────────────────────────────
  * A Gunsmith preset's cost is measured in-game by players, not derivable from
- * the code, so it arrives the same way verdicts do: reports from distinct
- * installs, with agreement promoting and disagreement escalating to a human.
+ * the code. It only has meaning in Hazard Operations / Chiến Dịch: Warfare
+ * loadouts are not bought, and one gun can have many distinct build codes.
+ * So its identity is (build code, mode), and only the Operations mode is
+ * accepted. Reports arrive the same way verdicts do: distinct installs, with
+ * agreement promoting and disagreement escalating to a human.
  * The quorum logic itself lives in src/core/costs.js and is shared verbatim with
  * the panel, so the optimistic local state and the authoritative one cannot
  * disagree about what "confirmed" means.
@@ -392,6 +395,13 @@ async function handleCostReport(request, env) {
 
   const code = String((payload && payload.code) || '').trim();
   if (!CODE_RE.test(code)) return json({ ok: false, error: 'code must be 6-32 alphanumeric chars' }, { status: 400 });
+  const mode = String((payload && payload.mode) || '').trim();
+  /* The client only exposes a cost editor for Chiến Dịch. Enforce the same rule
+   * at the public endpoint; a caller can forge a POST, but it cannot create
+   * misleading Warfare pricing in the shared vault. */
+  if (mode !== 'Chiến Dịch Sinh Tồn') {
+    return json({ ok: false, error: 'cost is only supported for Operations / Chiến Dịch presets' }, { status: 400 });
+  }
 
   /* Rate limited on the IP hash exactly like /submit: a cost report is a write,
    * and an unlimited write endpoint is a way to burn the KV quota for free. */
