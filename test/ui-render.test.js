@@ -1225,6 +1225,35 @@ test('HQ review: price is shown for reference only and never becomes a cost', as
   assert(!/412/.test(card.textContent), 'the preset card must not show the HQ price as its cost');
 });
 
+test('HQ review: missing Operations prices point to "Xem thêm" on HQ, and a reload keeps picks', async () => {
+  const reply = JSON.parse(JSON.stringify(HQ_REPLY));
+  reply.prices = {};
+  const h = await hqPanel(reply);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-row'), 'review must render');
+  const hint = sd.querySelector('.hq-hint');
+  assert(hint, 'unpriced Operations codes must show the HQ price hint');
+  /* Two Operations codes (one new, one saved) lack a price; Warfare never has one. */
+  assert(/2 mã Chiến Dịch Sinh Tồn chưa có giá HQ/.test(hint.textContent), 'hint must count unpriced Operations codes: ' + hint.textContent);
+  assert(/Xem thêm/.test(hint.textContent), 'the hint must name the "Xem thêm" link on HQ');
+  const link = hint.querySelector('a');
+  assert(link && link.getAttribute('href') === 'https://www.playdeltaforce.com/events/hq/vi/', 'the hint must link the HQ page');
+  assert(link.getAttribute('target') === '_blank' && /noopener/.test(link.getAttribute('rel') || ''), 'the HQ link must open a new tab without an opener');
+
+  sd.querySelector(`[data-act="hq-toggle"][data-code="${HQ_NEW_A}"]`).click();
+  reply.prices = { [HQ_NEW_A]: 412000, [HQ_HAVE]: 99000 };
+  sd.querySelector('.hq-hint').querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-price'), 'a reload must paint the prices HQ now has');
+  assert(h.calls.length === 2, 'reload must fetch again, got ' + h.calls.length);
+  assert(!sd.querySelector('.hq-hint'), 'once every Operations code is priced the hint must go');
+  const pressed = (code) => sd.querySelector(`[data-act="hq-toggle"][data-code="${code}"]`).getAttribute('aria-pressed');
+  assert(pressed(HQ_NEW_A) === 'false', 'a reload must keep a code the user unticked');
+  assert(pressed(HQ_NEW_B) === 'true', 'a reload must keep a code the user left picked');
+});
+
 test('HQ review: toggles drive what is imported and never overwrite a saved code', async () => {
   const h = await hqPanel(HQ_REPLY);
   const sd = h.p._shadow;

@@ -921,6 +921,7 @@ function createPanel(options) {
    * was measured by HQ, not by this community, so it never becomes preset.cost,
    * never feeds costFor() and is never reported to the shared cost record. */
   const HQ_CODE_RE = /^[A-Z0-9]{21}$/;
+  const HQ_PAGE_URL = 'https://www.playdeltaforce.com/events/hq/vi/';
   const hqText = (value, max) => String(value == null ? '' : value).trim().slice(0, max);
 
   /* Re-checked here even though the worker already validated: the reply crossed
@@ -991,6 +992,12 @@ function createPanel(options) {
       return toast('Bản này không tải được mã HQ — dùng extension.', 'warn');
     }
     const seq = ++hqSeq;
+    /* "Tải lại" after visiting HQ for prices re-runs this. Keep the user's
+     * picks across that reload: un-ticking five codes and then losing it to a
+     * price refresh would make them redo the review. */
+    const prior = hqReview && hqReview.state === 'ready'
+      ? { offered: new Set(hqReview.items.map((i) => i.code)), picked: new Set(hqReview.picked) }
+      : null;
     hqReview = { state: 'loading', items: [], known: new Set(), prices: {}, picked: new Set(), failed: [], error: '', saving: false };
     renderPresets();
     let reply;
@@ -1018,8 +1025,12 @@ function createPanel(options) {
       hqReview.prices = hqPrices(reply, items);
       hqReview.failed = Array.isArray(reply.failed) ? reply.failed : [];
       /* Start with every new code picked: the list is short and curated, and
-       * the user unticks what they do not want before anything is saved. */
-      hqReview.picked = new Set(items.filter((i) => !hqReview.known.has(i.code)).map((i) => i.code));
+       * the user unticks what they do not want before anything is saved. On a
+       * reload, a code offered last time keeps its previous pick state. */
+      hqReview.picked = new Set(items
+        .filter((i) => !hqReview.known.has(i.code))
+        .filter((i) => !prior || !prior.offered.has(i.code) || prior.picked.has(i.code))
+        .map((i) => i.code));
     }
     if (view === 'presets') { renderPresets(); hqPainted(); }
   }
@@ -1100,8 +1111,20 @@ function createPanel(options) {
     const partial = r.failed.length
       ? `<p class="muted hq-note" role="status">Thiếu nguồn: ${r.failed.map((f) => esc(canonicalMode(f && f.mode)) + ' (' + esc(f && f.error) + ')').join(', ')}.</p>`
       : '';
+    /* Only Operations builds carry an HQ price, and the HQ page fetches them
+     * only after the player opens "Xem thêm" under "Đề Xuất Chia Sẻ Mã" — its
+     * first load asks for counts alone. Until then every price is missing, so
+     * say where to click instead of leaving the user to guess. The anchor is a
+     * plain link: it works the same in the drawer and in the cloned app view. */
+    const unpriced = r.items.filter((i) => canonicalMode(i.mode) === COST_MODE && !r.prices[i.code]).length;
+    const priceHint = unpriced
+      ? `<p class="hq-hint" role="note"><span>${unpriced} mã ${esc(COST_MODE)} chưa có giá HQ. Mở trang HQ (đã đăng nhập), bấm <b>Xem thêm</b> ở mục Đề Xuất Chia Sẻ Mã để trang tải giá, rồi bấm Tải lại.</span>
+          <a class="link" href="${HQ_PAGE_URL}" target="_blank" rel="noopener noreferrer">Mở trang HQ ↗</a>
+          <button class="act tiny ghost" data-act="hq-import">Tải lại</button></p>`
+      : '';
     return `<section class="card hq-review">${head(`<span class="muted">${fresh.length} mới · ${r.known.size} đã có</span>`)}
         <p class="muted hq-note">Tick mã muốn nhập rồi bấm Nhập. Mã đã có trong kho không bị ghi đè. Giá HQ chỉ để xem, không dùng làm chi phí trang bị.</p>
+        ${priceHint}
         ${partial}
         ${r.items.length ? [...groups.entries()].map(([mode, items]) => `<div class="hq-group">
           <div class="hq-group-hd">${esc(mode)} <span class="muted">${items.length} mã</span></div>

@@ -299,14 +299,29 @@
 .df .hq-group + .hq-group { margin-top: 10px; }
 .df .hq-group-hd { margin-bottom: 6px; font-size: 11px; font-weight: 700; color: var(--ink-dim); }
 .df .hq-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+/* A fixed first column: the pick button reads "Chọn" or "✓ Chọn" and a saved
+ * row shows a narrower "đã có" tag, so a content-sized column pushed every
+ * row's text to a different x. */
 .df .hq-row {
   min-width: 0;
-  display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px;
+  display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: start; gap: 9px;
+  padding: 7px 9px;
   border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
 }
 .df .hq-row.on { border-color: var(--primary-dim); }
 .df .hq-row.hq-known { opacity: .62; }
-.df .hq-row > .chip, .df .hq-row > .tag { flex: 0 0 auto; margin-top: 1px; }
+.df .hq-row > .chip { width: 100%; justify-content: center; padding: 3px 6px; }
+/* Centre the tag on the 32px button line so the two row kinds also match
+ * vertically. */
+.df .hq-row > .tag { justify-self: center; margin-top: 8px; }
+.df .hq-review .hq-hint {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 10px; padding: 7px 9px;
+  border: 1px solid var(--line-soft); border-left: 2px solid var(--amber); border-radius: var(--r);
+  background: var(--sunken); color: var(--ink-dim); font-size: 11px; line-height: 1.45;
+}
+.df .hq-hint > span { flex: 1 1 220px; min-width: 0; }
+.df .hq-hint .link { padding: 0; font-size: 11px; }
 .df .hq-main { min-width: 0; flex: 1; display: grid; gap: 3px; font-size: 12px; }
 .df .hq-main .muted { font-size: 10.5px; }
 .df .hq-code { font-size: 11px; letter-spacing: .3px; overflow-wrap: anywhere; user-select: all; }
