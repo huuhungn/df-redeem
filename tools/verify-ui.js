@@ -18,6 +18,9 @@ if (!EXT_ID) { console.error('usage: node tools/verify-ui.js <extension-id> [out
 fs.mkdirSync(OUT, { recursive: true });
 
 const VIEWS = ['dashboard', 'library', 'run', 'presets', 'share', 'history'];
+/* The preset count follows the shipped seed, so adding a preset to the seed
+ * does not turn this check red. */
+const SEED_PRESETS = (JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'data', 'seed.json'), 'utf8')).presets || []).length;
 const results = [];
 const fail = (name, msg) => { results.push({ ok: false, name, msg }); console.log('FAIL ' + name + ' — ' + msg); };
 const pass = (name, note) => { results.push({ ok: true, name }); console.log('ok   ' + name + (note ? ' — ' + note : '')); };
@@ -124,12 +127,12 @@ function errorSink(cx) {
       detail = probe.rows + ' rows';
     }
     if (view === 'presets') {
-      if (probe.cards !== 20) { fail(name, 'expected 20 preset cards, got ' + probe.cards); continue; }
+      if (probe.cards !== SEED_PRESETS) { fail(name, 'expected ' + SEED_PRESETS + ' preset cards, got ' + probe.cards); continue; }
       detail = probe.cards + ' preset cards';
     }
     if (view === 'share') {
       if (probe.shareGift < 150) { fail(name, 'share list holds ' + probe.shareGift + ' codes'); continue; }
-      if (probe.sharePreset !== 20) { fail(name, 'preset list holds ' + probe.sharePreset + ' lines'); continue; }
+      if (probe.sharePreset !== SEED_PRESETS) { fail(name, 'preset list holds ' + probe.sharePreset + ' lines, seed has ' + SEED_PRESETS); continue; }
       detail = probe.shareGift + ' shareable codes + ' + probe.sharePreset + ' presets';
     }
     if (view === 'history') {

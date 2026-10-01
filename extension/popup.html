@@ -6,41 +6,70 @@
 <link rel="stylesheet" href="theme.css">
 <style>
   html, body { margin: 0; width: 320px; background: var(--void); }
-  .pop { padding: 14px; }
-  .pop-hd { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-  .pop-hd h1 { margin: 0; font-size: 14px; }
-  .pop-hd .ver { color: var(--ink-mute); font: 600 10px var(--mono); }
-  .pop .kpis { grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
-  .pop .kpi b { font-size: 22px; }
-  .pop .kpi i {
-    display: block; margin-top: 2px;
-    color: var(--ink-mute); font-style: normal; font-size: 9.5px; line-height: 1.35;
+  .pop { display: grid; gap: 12px; padding: 16px; }
+  .pop-hd { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mark {
+    flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+    border: 1px solid var(--primary-dim); border-radius: var(--r);
+    background: var(--primary-glow); color: var(--primary); font: 800 11px var(--mono);
   }
-  .pop .btnrow { display: grid; gap: 6px; }
-  .pop .act { justify-content: flex-start; }
-  /* each action explains itself — the labels alone were ambiguous */
-  .pop .act small {
-    display: block; margin-top: 1px;
-    color: var(--ink-mute); font-size: 9.5px; font-weight: 500; line-height: 1.3;
+  .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .who h1 { margin: 0; font-size: var(--fs-title); font-weight: 700; white-space: nowrap; }
+  .ver { color: var(--ink-mute); font: 600 var(--fs-label) var(--mono); }
+  #backup { margin-left: auto; cursor: pointer; }
+  #backup:hover { border-color: var(--primary-dim); }
+  .pop .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pop .kpi { padding: 10px 12px; border-radius: var(--r-lg); }
+  .pop .kpi b { font-size: 24px; }
+  .pop .kpi small { margin-top: 4px; line-height: 1.35; }
+  .launch { width: 100%; font-size: var(--fs-body); }
+  .menu {
+    display: grid; overflow: hidden;
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
   }
-  .pop .act.primary small { color: color-mix(in srgb, #04231f 72%, transparent); }
-  .pop .act { display: block; text-align: left; padding: 8px 11px; }
-  .pop .foot { margin-top: 11px; color: var(--ink-mute); font-size: 10.5px; }
+  .mi {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+    min-height: 48px; padding: 8px 12px;
+    border: 0; border-top: 1px solid var(--line-soft); background: transparent;
+    text-align: left; cursor: pointer; transition: background .14s;
+  }
+  .mi:first-child { border-top: 0; }
+  .mi::after { content: "›"; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--ink-mute); font-size: 16px; }
+  .mi-t { grid-column: 1; grid-row: 1; color: var(--ink); font-size: var(--fs-body); font-weight: 600; line-height: 1.35; }
+  .mi-c { grid-column: 1; grid-row: 2; color: var(--ink-mute); font-size: var(--fs-label); line-height: 1.4; }
+  .mi:hover:not([disabled]) .mi-c { color: var(--ink-dim); }
+  .mi:hover:not([disabled]) { background: var(--raised); }
+  .mi:hover:not([disabled]) .mi-t { color: var(--primary); }
+  .mi:focus-visible { outline-offset: -2px; }
+  .mi[disabled] { cursor: not-allowed; }
+  .mi[disabled] .mi-t, .mi[disabled]::after { color: var(--ink-mute); }
+  .pop-ft {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding-top: 8px; border-top: 1px solid var(--line-soft);
+    color: var(--ink-mute); font-size: var(--fs-label);
+  }
+  .pop-ft .act.ghost { margin-right: -11px; }
 </style>
 </head>
 <body class="df">
-  <div class="pop">
-    <div class="pop-hd"><h1>Auto Redeem</h1><span class="ver">v3.3.0</span></div>
-    <div class="kpis" id="k"></div>
-    <div class="btnrow">
-      <button class="act primary" id="open-app">Mở bảng đầy đủ<small>Xem kho, chạy đổi, lịch sử trong tab riêng</small></button>
-      <button class="act" id="open-drawer">Mở bảng trên tab này<small>Chỉ dùng khi đang ở trang đổi code Garena</small></button>
-      <button class="act" id="open-redeem">Tới trang đổi code<small>Mở redeem.df.garena.sg và đăng nhập</small></button>
-      <button class="act" id="copy-share">Copy danh sách chia sẻ<small>Sao chép mã đã đổi xong để gửi bạn bè</small></button>
-      <button class="act ghost" id="open-options">Cài đặt</button>
-    </div>
-    <div class="foot" id="foot"></div>
-  </div>
+  <main class="pop">
+    <header class="pop-hd">
+      <div class="mark" aria-hidden="true">DF</div>
+      <div class="who"><h1>Auto Redeem</h1><span class="ver">v3.3.0</span></div>
+      <button class="sbadge" id="backup" type="button" data-state="off" title="Cài đặt sao lưu"><i aria-hidden="true"></i><span id="backup-text">Sao lưu tắt</span></button>
+    </header>
+    <section class="kpis" id="k" aria-label="Tóm tắt kho"></section>
+    <button class="act primary lg launch" id="open-app" type="button">Mở bảng đầy đủ</button>
+    <nav class="menu" aria-label="Thao tác nhanh">
+      <button class="mi" id="open-drawer" type="button"><span class="mi-t">Mở bảng trên tab này</span><span class="mi-c">Gắn bảng vào trang đổi code Garena đang mở</span></button>
+      <button class="mi" id="open-redeem" type="button"><span class="mi-t">Tới trang đổi code</span><span class="mi-c">Mở redeem.df.garena.sg để đăng nhập</span></button>
+      <button class="mi" id="copy-share" type="button"><span class="mi-t">Sao chép mã tặng được</span><span class="mi-c">Mã đã đổi xong, gửi cho bạn bè</span></button>
+    </nav>
+    <footer class="pop-ft">
+      <span id="foot" role="status"></span>
+      <button class="act ghost tiny" id="open-options" type="button">Cài đặt</button>
+    </footer>
+  </main>
 <script src="popup.js"></script>
 </body>
 </html>

@@ -796,10 +796,24 @@ ${UI}
 }());
 `;
 
+/* ── settings surfaces: shared helpers ───────────────────────────────────── */
+/* Short local time for status lines: HH:MM today, otherwise HH:MM dd/MM. The
+ * popup badge and the options status line must agree on the format. */
+const uiWhen = `  function when(ts) {
+    const d = new Date(ts);
+    if (!ts || Number.isNaN(d.getTime())) return '';
+    const hm = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString()
+      ? hm
+      : hm + ' ' + d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  }
+`;
+
 /* ── toolbar popup ────────────────────────────────────────────────────── */
-/* Small, opinionated: the two numbers that matter, then one button per intent.
- * Anything richer opens the full page — a 360px popup is the wrong place for a
- * 300-row table. */
+/* A launcher, not a dashboard: two numbers, one primary action, a short menu
+ * of secondary routes, and the backup state as a badge that links to its
+ * settings. Anything richer opens the full page — a 320px popup is the wrong
+ * place for a 300-row table. */
 const popupHtml = `<!doctype html>
 <html lang="vi">
 <head>
@@ -808,41 +822,70 @@ const popupHtml = `<!doctype html>
 <link rel="stylesheet" href="theme.css">
 <style>
   html, body { margin: 0; width: 320px; background: var(--void); }
-  .pop { padding: 14px; }
-  .pop-hd { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-  .pop-hd h1 { margin: 0; font-size: 14px; }
-  .pop-hd .ver { color: var(--ink-mute); font: 600 10px var(--mono); }
-  .pop .kpis { grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
-  .pop .kpi b { font-size: 22px; }
-  .pop .kpi i {
-    display: block; margin-top: 2px;
-    color: var(--ink-mute); font-style: normal; font-size: 9.5px; line-height: 1.35;
+  .pop { display: grid; gap: 12px; padding: 16px; }
+  .pop-hd { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mark {
+    flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+    border: 1px solid var(--primary-dim); border-radius: var(--r);
+    background: var(--primary-glow); color: var(--primary); font: 800 11px var(--mono);
   }
-  .pop .btnrow { display: grid; gap: 6px; }
-  .pop .act { justify-content: flex-start; }
-  /* each action explains itself — the labels alone were ambiguous */
-  .pop .act small {
-    display: block; margin-top: 1px;
-    color: var(--ink-mute); font-size: 9.5px; font-weight: 500; line-height: 1.3;
+  .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .who h1 { margin: 0; font-size: var(--fs-title); font-weight: 700; white-space: nowrap; }
+  .ver { color: var(--ink-mute); font: 600 var(--fs-label) var(--mono); }
+  #backup { margin-left: auto; cursor: pointer; }
+  #backup:hover { border-color: var(--primary-dim); }
+  .pop .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pop .kpi { padding: 10px 12px; border-radius: var(--r-lg); }
+  .pop .kpi b { font-size: 24px; }
+  .pop .kpi small { margin-top: 4px; line-height: 1.35; }
+  .launch { width: 100%; font-size: var(--fs-body); }
+  .menu {
+    display: grid; overflow: hidden;
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
   }
-  .pop .act.primary small { color: color-mix(in srgb, #04231f 72%, transparent); }
-  .pop .act { display: block; text-align: left; padding: 8px 11px; }
-  .pop .foot { margin-top: 11px; color: var(--ink-mute); font-size: 10.5px; }
+  .mi {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+    min-height: 48px; padding: 8px 12px;
+    border: 0; border-top: 1px solid var(--line-soft); background: transparent;
+    text-align: left; cursor: pointer; transition: background .14s;
+  }
+  .mi:first-child { border-top: 0; }
+  .mi::after { content: "›"; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--ink-mute); font-size: 16px; }
+  .mi-t { grid-column: 1; grid-row: 1; color: var(--ink); font-size: var(--fs-body); font-weight: 600; line-height: 1.35; }
+  .mi-c { grid-column: 1; grid-row: 2; color: var(--ink-mute); font-size: var(--fs-label); line-height: 1.4; }
+  .mi:hover:not([disabled]) .mi-c { color: var(--ink-dim); }
+  .mi:hover:not([disabled]) { background: var(--raised); }
+  .mi:hover:not([disabled]) .mi-t { color: var(--primary); }
+  .mi:focus-visible { outline-offset: -2px; }
+  .mi[disabled] { cursor: not-allowed; }
+  .mi[disabled] .mi-t, .mi[disabled]::after { color: var(--ink-mute); }
+  .pop-ft {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding-top: 8px; border-top: 1px solid var(--line-soft);
+    color: var(--ink-mute); font-size: var(--fs-label);
+  }
+  .pop-ft .act.ghost { margin-right: -11px; }
 </style>
 </head>
 <body class="df">
-  <div class="pop">
-    <div class="pop-hd"><h1>Auto Redeem</h1><span class="ver">v${VERSION}</span></div>
-    <div class="kpis" id="k"></div>
-    <div class="btnrow">
-      <button class="act primary" id="open-app">Mở bảng đầy đủ<small>Xem kho, chạy đổi, lịch sử trong tab riêng</small></button>
-      <button class="act" id="open-drawer">Mở bảng trên tab này<small>Chỉ dùng khi đang ở trang đổi code Garena</small></button>
-      <button class="act" id="open-redeem">Tới trang đổi code<small>Mở redeem.df.garena.sg và đăng nhập</small></button>
-      <button class="act" id="copy-share">Copy danh sách chia sẻ<small>Sao chép mã đã đổi xong để gửi bạn bè</small></button>
-      <button class="act ghost" id="open-options">Cài đặt</button>
-    </div>
-    <div class="foot" id="foot"></div>
-  </div>
+  <main class="pop">
+    <header class="pop-hd">
+      <div class="mark" aria-hidden="true">DF</div>
+      <div class="who"><h1>Auto Redeem</h1><span class="ver">v${VERSION}</span></div>
+      <button class="sbadge" id="backup" type="button" data-state="off" title="Cài đặt sao lưu"><i aria-hidden="true"></i><span id="backup-text">Sao lưu tắt</span></button>
+    </header>
+    <section class="kpis" id="k" aria-label="Tóm tắt kho"></section>
+    <button class="act primary lg launch" id="open-app" type="button">Mở bảng đầy đủ</button>
+    <nav class="menu" aria-label="Thao tác nhanh">
+      <button class="mi" id="open-drawer" type="button"><span class="mi-t">Mở bảng trên tab này</span><span class="mi-c">Gắn bảng vào trang đổi code Garena đang mở</span></button>
+      <button class="mi" id="open-redeem" type="button"><span class="mi-t">Tới trang đổi code</span><span class="mi-c">Mở redeem.df.garena.sg để đăng nhập</span></button>
+      <button class="mi" id="copy-share" type="button"><span class="mi-t">Sao chép mã tặng được</span><span class="mi-c">Mã đã đổi xong, gửi cho bạn bè</span></button>
+    </nav>
+    <footer class="pop-ft">
+      <span id="foot" role="status"></span>
+      <button class="act ghost tiny" id="open-options" type="button">Cài đặt</button>
+    </footer>
+  </main>
 <script src="popup.js"></script>
 </body>
 </html>
@@ -856,20 +899,56 @@ const popupJs = `${BANNER}
 ${schema}
 ${vault}
   const DF_REDEEM_SEED = ${seed};
+  const STATUS_KEY = 'dfRedeemSyncStatus';
+  const $ = (id) => document.getElementById(id);
+  const ask = (op) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op });
+${uiWhen}
+  /* Menu rows carry a caption, so transient feedback swaps only the title and
+   * then puts the original back. */
+  function flashTitle(btn, text, ms) {
+    const title = btn.querySelector('.mi-t');
+    if (!title) return;
+    if (!title.dataset.label) title.dataset.label = title.textContent;
+    title.textContent = text;
+    clearTimeout(btn.dfTimer);
+    btn.dfTimer = setTimeout(() => { title.textContent = title.dataset.label; }, ms || 2200);
+  }
 
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-
-  /* Buttons carry a <small> hint; writing textContent would delete it, so
-   * transient feedback only replaces the first text node. */
-  const setLabel = (btn, text) => {
-    const first = btn.firstChild;
-    if (first && first.nodeType === 3) first.nodeValue = text;
-    else btn.insertBefore(document.createTextNode(text), btn.firstChild);
-  };
+  /* The badge mirrors the personal backup only; the community vault needs no
+   * account and has nothing for the user to fix from here. */
+  let backupOn = false;
+  function paintBackup(status) {
+    const badge = $('backup');
+    const state = !backupOn ? 'off' : (status && status.state) || 'never-synced';
+    const text = {
+      off: 'Sao lưu tắt',
+      ok: 'Đã sao lưu ' + when(status && status.lastSyncAt),
+      syncing: 'Đang sao lưu…',
+      error: 'Sao lưu lỗi',
+      'never-synced': 'Chưa sao lưu',
+    }[state] || state;
+    badge.dataset.state = state;
+    $('backup-text').textContent = text.trim();
+    badge.title = state === 'error' && status && status.error ? status.error : 'Cài đặt sao lưu';
+  }
+  async function loadBackup() {
+    try {
+      const settings = await ask('getSettings');
+      backupOn = Boolean(settings && settings.enabled);
+      paintBackup(backupOn ? await ask('status') : null);
+    } catch (_) {
+      $('backup').hidden = true;
+    }
+  }
 
   (async function main() {
+    loadBackup();
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[STATUS_KEY]) paintBackup(changes[STATUS_KEY].newValue);
+    });
+
     const v = new root.DFRedeemVault.Vault({ adapter: new root.DFRedeemVault.IndexedDBAdapter() });
-    let gifts = [], presets = [], stats = { byStatus: {} };
+    let gifts = [], presets = [];
     try {
       await v.init();
       await v.seedOnFirstRun(DF_REDEEM_SEED);
@@ -877,151 +956,313 @@ ${vault}
       presets = await v.presets();
       const presetCodes = new Set(presets.map((r) => r.code));
       gifts = all.filter((r) => !presetCodes.has(r.code));
-      stats = await v.stats();
     } catch (e) {
-      document.getElementById('foot').textContent = 'Không đọc được kho: ' + e.message;
+      $('foot').textContent = 'Không đọc được kho: ' + e.message;
     }
-    const by = stats.byStatus || {};
     const share = gifts.filter((r) => r.status === 'success' || r.status === 'mine');
     const untried = gifts.filter((r) => r.status === 'untried');
 
     /* Plain-language tiles: a first-time user should learn what the numbers
      * mean without opening the full dashboard. "Chưa thử" alone read as
      * meaningless when it was 0, so each tile carries its own hint line. */
-    document.getElementById('k').innerHTML =
+    $('k').innerHTML =
       '<div class="kpi ok"><b>' + share.length + '</b><span>Mã tặng được</span>' +
-        '<i>đã đổi xong, gửi cho bạn bè</i></div>' +
+        '<small>đã đổi xong, gửi bạn bè</small></div>' +
       '<div class="kpi warn"><b>' + untried.length + '</b><span>Mã chờ đổi</span>' +
-        '<i>' + (untried.length ? 'bấm Chạy đổi để thử' : 'đã thử hết kho') + '</i></div>';
-    document.getElementById('foot').textContent =
-      'Kho: ' + gifts.length + ' mã quà · ' + presets.length + ' mã lắp súng';
+        '<small>' + (untried.length ? 'mở bảng để chạy đổi' : 'đã thử hết kho') + '</small></div>';
+    if (!$('foot').textContent) {
+      $('foot').textContent = 'Kho: ' + gifts.length + ' mã quà · ' + presets.length + ' mã lắp súng';
+    }
 
-    document.getElementById('open-app').addEventListener('click', () => {
+    const copyBtn = $('copy-share');
+    copyBtn.querySelector('.mi-t').textContent = share.length ? 'Sao chép ' + share.length + ' mã tặng được' : 'Sao chép mã tặng được';
+    if (!share.length) {
+      copyBtn.disabled = true;
+      copyBtn.querySelector('.mi-c').textContent = 'Chưa có mã nào đổi xong';
+    }
+
+    $('open-app').addEventListener('click', () => {
       chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
     });
-    document.getElementById('open-drawer').addEventListener('click', async () => {
-      const btn = document.getElementById('open-drawer');
+    $('open-drawer').addEventListener('click', async () => {
+      const btn = $('open-drawer');
       try {
         const r = await chrome.runtime.sendMessage({ type: 'DF_REDEEM_OPEN_DRAWER' });
         if (r && r.ok) return window.close();
-        setLabel(btn, (r && r.error) || 'Không mở được');
-      } catch (e) { setLabel(btn, 'Không mở được'); }
-      setTimeout(() => { setLabel(btn, 'Mở bảng trên tab này'); }, 2200);
+        flashTitle(btn, (r && r.error) || 'Không mở được');
+      } catch (_) { flashTitle(btn, 'Không mở được'); }
     });
-    document.getElementById('open-redeem').addEventListener('click', () => {
+    $('open-redeem').addEventListener('click', () => {
       chrome.tabs.create({ url: 'https://redeem.df.garena.sg/vi/cdkgarena.html' });
     });
-    document.getElementById('open-options').addEventListener('click', () => chrome.runtime.openOptionsPage());
-    document.getElementById('copy-share').addEventListener('click', async () => {
-      const btn = document.getElementById('copy-share');
+    $('open-options').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    $('backup').addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('options.html#backup') });
+    });
+    copyBtn.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(share.map((r) => r.code).join('\\n'));
-        setLabel(btn, 'Đã copy ' + share.length + ' mã ✓');
-      } catch (_) { setLabel(btn, 'Không copy được'); }
-      setTimeout(() => { setLabel(btn, 'Copy danh sách chia sẻ'); }, 2000);
+        await navigator.clipboard.writeText(share.map((r) => r.code).join(String.fromCharCode(10)));
+        flashTitle(copyBtn, 'Đã sao chép ' + share.length + ' mã ✓', 2000);
+      } catch (_) { flashTitle(copyBtn, 'Không sao chép được', 2000); }
     });
   }());
 }());
 `;
 
+/* ── options page ─────────────────────────────────────────────────────── */
+/* Four sections in the order a user reasons about their data: what is shared
+ * with everyone, what is backed up for me, what sits on this machine, and the
+ * one destructive action — fenced off so it is never next to Save. */
 const optionsHtml = `<!doctype html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<title>Delta Force Auto Redeem — Cài đặt</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cài đặt — Delta Force Auto Redeem</title>
 <link rel="stylesheet" href="theme.css">
 <style>
-  /* Options inherits every token from theme.css so it reads as one product
-   * with the drawer, the popup and the full page. Layout only lives here. */
-  body { margin: 0; padding: 0; background: var(--void); color: var(--ink); font: 13px/1.6 var(--sans); }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 30px 22px 48px; }
-  .masthead { display: flex; align-items: flex-start; gap: 13px; padding-bottom: 16px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
-  .mark { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--primary-dim); border-radius: var(--r); background: var(--primary-glow); color: var(--primary); font: 800 15px var(--mono); }
-  .masthead h1 { margin: 0 0 2px; font-size: 16px; letter-spacing: -.01em; }
-  .masthead .sub { margin: 0; color: var(--ink-mute); font-size: 11px; }
-  .masthead .ver { margin-left: auto; padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--r); color: var(--ink-dim); font: 700 10px var(--mono); }
+  /* Tokens and primitives (.act, .switch, .sbadge, .input) come from
+   * theme.css; layout only lives here. */
+  body { margin: 0; background: var(--void); color: var(--ink); font: var(--fs-body)/1.6 var(--sans); }
+  .shell { max-width: 1000px; margin: 0 auto; padding: 32px 24px 64px; }
+  .top { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+  .mark {
+    flex: none; width: 40px; height: 40px; display: grid; place-items: center;
+    border: 1px solid var(--primary-dim); border-radius: var(--r);
+    background: var(--primary-glow); color: var(--primary); font: 800 15px var(--mono);
+  }
+  .top h1 { margin: 0; font-size: var(--fs-headline); letter-spacing: -.01em; line-height: 1.25; }
+  .top .sub { margin: 2px 0 0; color: var(--ink-mute); font-size: var(--fs-caption); }
+  .top .act { margin-left: auto; text-decoration: none; }
 
-  fieldset { margin: 0 0 16px; padding: 15px 17px 17px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); }
-  legend { padding: 0 7px; color: var(--primary); font: 800 9.5px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
-  label { display: grid; gap: 5px; margin-bottom: 12px; color: var(--ink-dim); font-size: 10.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
-  input[type=text], input[type=password], select { padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunken); color: var(--ink); font: 12.5px var(--mono); transition: border-color .15s, box-shadow .15s; }
-  input:focus, select:focus { border-color: var(--primary); outline: 0; box-shadow: 0 0 0 3px var(--primary-glow); }
-  .check { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: var(--ink); font-size: 12.5px; font-weight: 600; letter-spacing: 0; text-transform: none; }
-  .check input { accent-color: var(--primary); width: 15px; height: 15px; }
-  button { min-height: 34px; padding: 0 15px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); color: var(--ink); cursor: pointer; font: 700 11.5px var(--sans); letter-spacing: .04em; transition: border-color .15s, background .15s, color .15s; }
-  button:hover { border-color: var(--primary-dim); color: var(--primary); }
-  button.primary { border-color: var(--primary-dim); background: var(--primary); color: var(--void); }
-  button.primary:hover { background: var(--primary-dim); color: var(--void); }
-  button.danger:hover { border-color: var(--danger); color: var(--danger); }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
-  .note { margin: 8px 0 0; color: var(--ink-mute); font-size: 10.5px; line-height: 1.55; }
-  .status { margin-left: 4px; font: 700 11px var(--mono); }
-  .sync-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; color: var(--ink-mute); font: 10.5px var(--mono); }
-  .sync-meta span + span::before { content: '·'; margin-right: 8px; color: var(--ink-dim); }
-  .sync-meta .ok { color: var(--primary); } .sync-meta .err { color: var(--danger); }
-  .ok { color: var(--primary); } .err { color: var(--danger); }
+  .layout { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .toc { position: sticky; top: 24px; display: grid; gap: 2px; }
+  .toc a {
+    display: block; padding: 8px 12px; border-left: 2px solid transparent; border-radius: 0 var(--r) var(--r) 0;
+    color: var(--ink-dim); font-size: var(--fs-caption); font-weight: 600; text-decoration: none;
+  }
+  .toc a:hover { background: var(--panel); color: var(--ink); }
+  .toc a[aria-current="true"] { border-left-color: var(--primary); background: var(--panel); color: var(--primary); }
+  .toc a.is-danger { color: color-mix(in srgb, var(--danger) 70%, var(--ink-dim)); }
+  .toc a.is-danger:hover, .toc a.is-danger[aria-current="true"] { border-left-color: var(--danger); color: var(--danger); }
+  .content { display: grid; gap: 16px; min-width: 0; }
+
+  .block {
+    padding: 20px 24px; scroll-margin-top: 24px;
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  }
+  .block-hd { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+  .block-hd h2 { margin: 0; font-size: var(--fs-title); font-weight: 700; line-height: 1.35; }
+  .lede { margin: 4px 0 0; color: var(--ink-mute); font-size: var(--fs-caption); line-height: 1.5; }
+  .lede, .note, .points li span, .setrow .d, .opt small { text-wrap: pretty; }
+  .block-hd .sbadge { flex: none; margin-left: auto; }
+
+  .points { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .points li {
+    display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 10px 12px;
+    border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
+    color: var(--ink-dim); font-size: var(--fs-caption); line-height: 1.55;
+  }
+  .points li > b { color: var(--ink); font-size: var(--fs-caption); font-weight: 700; }
+  .note { margin: 12px 0 0; color: var(--ink-mute); font-size: var(--fs-caption); line-height: 1.55; }
+  .note b, .points li span b { color: var(--ink-dim); }
+
+  .setrow { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+  label.setrow { cursor: pointer; }
+  .setrow > .txt { flex: 1; min-width: 0; }
+  .setrow .t { display: block; color: var(--ink); font-size: var(--fs-body); font-weight: 600; line-height: 1.4; }
+  .setrow .d { display: block; margin-top: 2px; color: var(--ink-mute); font-size: var(--fs-caption); line-height: 1.5; }
+  .block-hd + .setrow { border-top: 0; padding-top: 0; }
+
+  .cfg { min-width: 0; margin: 0; padding: 0; border: 0; }
+  .lbl { display: block; margin: 12px 0 8px; padding: 0; color: var(--ink-dim); font-size: var(--fs-caption); font-weight: 700; }
+  .lbl em { color: var(--ink-mute); font-style: normal; font-weight: 500; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .opt {
+    display: flex; gap: 10px; padding: 12px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--sunken);
+    transition: border-color .14s, background .14s;
+  }
+  .opt input { flex: none; margin: 4px 0 0; accent-color: var(--primary); }
+  .opt b { display: block; font-size: var(--fs-body); }
+  .opt small { display: block; margin-top: 2px; color: var(--ink-mute); font-size: var(--fs-caption); line-height: 1.45; }
+  .opt:has(input:checked) { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--sunken)); box-shadow: inset 0 0 0 1px var(--primary-dim); }
+  .opt:has(input:checked) b { color: var(--primary); }
+  .opt:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .rest { display: grid; gap: 12px; margin-top: 12px; }
+  .field { display: grid; gap: 6px; }
+  .field .lbl { margin: 0; }
+  .block .input { min-height: 40px; padding: 9px 12px; font-family: var(--mono); }
+  .hint { color: var(--ink-mute); font-size: var(--fs-label); line-height: 1.5; }
+  .cfg .setrow { margin-top: 12px; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 12px; padding: 10px 12px;
+    border-radius: var(--r); background: var(--sunken);
+    color: var(--ink-mute); font: var(--fs-label)/1.5 var(--mono);
+  }
+  .meta:empty { display: none; }
+  .meta .err { flex-basis: 100%; color: var(--danger); font-family: var(--sans); font-size: var(--fs-caption); }
+
+  .block-ft { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+  .msg { margin-right: auto; font-size: var(--fs-caption); font-weight: 600; }
+  .status { color: var(--ink-mute); }
+  .status[data-tone="ok"] { color: var(--s-success); }
+  .status[data-tone="err"] { color: var(--danger); }
+  .status[data-tone="busy"] { color: var(--sky); }
+  .dirty { color: var(--amber); }
+  .status.note:empty { margin: 0; }
+  .status:not(:empty) + .dirty { display: none; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+  .stats > div { padding: 12px; border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken); }
+  .stats dt { color: var(--ink-mute); font-size: var(--fs-caption); font-weight: 600; }
+  .stats dd { margin: 4px 0 0; color: var(--ink); font: 700 22px/1.1 var(--sans); font-variant-numeric: tabular-nums; }
+
+  .block.danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+  .block.danger h2 { color: var(--danger); }
+  .block.danger .setrow { gap: 24px; padding: 0; border-top: 0; }
+  .block.danger .act.danger { flex: none; border-color: var(--danger); background: transparent; color: var(--danger); font-weight: 700; }
+  .block.danger .act.danger:hover:not([disabled]) { background: var(--danger); color: #1a0508; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    .toc { position: static; display: flex; flex-wrap: wrap; gap: 4px; }
+    .toc a { border-left: 0; border-bottom: 2px solid transparent; border-radius: var(--r) var(--r) 0 0; }
+    .toc a[aria-current="true"] { border-bottom-color: currentColor; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .shell { padding: 20px 16px 48px; }
+    .block { padding: 16px; }
+    .choices { grid-template-columns: minmax(0, 1fr); }
+    .points li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .block.danger .setrow { flex-direction: column; align-items: stretch; }
+  }
 </style>
 </head>
 <body class="df">
- <div class="wrap">
-  <header class="masthead">
-    <div class="mark">DF</div>
+ <div class="shell">
+  <header class="top">
+    <div class="mark" aria-hidden="true">DF</div>
     <div>
-      <h1>Delta Force Auto Redeem</h1>
-      <p class="sub">Kho cục bộ giữ trạng thái mã/preset trên máy. <b>Kho cộng đồng</b> là public, không cần Google/REST và chỉ chia sẻ verdict có hiệu lực với mọi account. <b>Sao lưu cá nhân</b> ở bên dưới chỉ để khớp kho riêng giữa các máy của bạn.</p>
+      <h1>Cài đặt</h1>
+      <p class="sub">Delta Force Auto Redeem · v${VERSION}</p>
     </div>
-    <span class="ver">v${VERSION}</span>
+    <a class="act lg" href="app.html" target="_blank" rel="noopener">Mở bảng đầy đủ</a>
   </header>
 
-  <fieldset>
-    <legend>Kho cộng đồng</legend>
-    <p class="note"><b>Tự động hoạt động, không cần đăng nhập Google hay cấu hình server.</b> Khi mở extension, kho public được tải về. Sau lượt đổi mã, chỉ kết quả có hiệu lực với mọi account mới được gửi làm bằng chứng. <b>Đã dùng/đã nhận</b>, sai account/khu vực, captcha và lỗi tạm thời luôn ở lại máy này.</p>
-    <p class="note">Một mã thành công ở người khác vẫn là <b>chưa thử</b> cho account của bạn. Mã hết hạn/lỗi quà cần hai lượt cài đặt độc lập xác nhận trước khi công bố.</p>
-  </fieldset>
+  <div class="layout">
+   <nav class="toc" aria-label="Các mục cài đặt">
+     <a href="#community" aria-current="true">Kho cộng đồng</a>
+     <a href="#backup">Sao lưu cá nhân</a>
+     <a href="#local">Kho trên máy này</a>
+     <a href="#danger" class="is-danger">Vùng nguy hiểm</a>
+   </nav>
 
-  <fieldset>
-    <legend>Sao lưu cá nhân tùy chọn</legend>
-    <label class="check"><input type="checkbox" id="enabled"> Bật sao lưu kho riêng của tôi</label>
-    <p class="note">Tắt: lịch sử và trạng thái account chỉ ở máy này. Bật: sao lưu/khớp kho riêng giữa các máy của bạn. Tính năng này không cấp dữ liệu của bạn cho kho cộng đồng.</p>
-    <label>Nơi sao lưu cá nhân
-      <select id="backend">
-        <option value="chrome-sync">Chrome Sync (cần đăng nhập Chrome, tối đa ~100 KB)</option>
-        <option value="rest">REST endpoint (tự host, không giới hạn)</option>
-      </select>
-    </label>
-    <div id="rest-only" hidden>
-      <label>Endpoint
-        <input type="text" id="endpoint" placeholder="https://vi-du.com/api/vault" spellcheck="false">
-      </label>
-      <label>Token (tuỳ chọn)
-        <input type="password" id="token" placeholder="để trống nếu endpoint không cần xác thực" spellcheck="false">
-      </label>
-      <p class="note">Token gửi dưới dạng header Authorization. Mọi thông báo lỗi đều đã khử token trước khi hiện ra.</p>
-    </div>
-    <label class="check"><input type="checkbox" id="auto"> Tự sao lưu sau khi chạy đổi mã</label>
-    <p class="note">Chỉ áp dụng cho sao lưu cá nhân ở trên. Nếu kho cộng đồng hoặc sao lưu cá nhân lỗi, dữ liệu trên máy vẫn giữ nguyên.</p>
-    <div class="sync-meta" id="sync-meta" aria-live="polite">
-      <span id="sync-state">Chưa kiểm tra kết nối</span>
-      <span id="sync-last"></span>
-      <span id="sync-count"></span>
-    </div>
-    <div class="row">
-      <button class="primary" id="save">Lưu cài đặt</button>
-      <button id="test">Kiểm tra và đồng bộ thử</button>
-      <span class="status" id="status"></span>
-    </div>
-  </fieldset>
+   <main class="content">
+    <section class="block" id="community" aria-labelledby="community-h">
+      <header class="block-hd">
+        <div>
+          <h2 id="community-h">Kho cộng đồng</h2>
+          <p class="lede">Tự động. Không cần đăng nhập Google hay cấu hình server, và không có gì để bật.</p>
+        </div>
+        <span class="sbadge" data-state="ok"><i aria-hidden="true"></i>Tự động</span>
+      </header>
+      <ul class="points">
+        <li><b>Tải về</b><span>Mỗi lần mở extension, danh sách mã chung được tải về để bỏ qua mã đã chết.</span></li>
+        <li><b>Gửi lên</b><span>Chỉ kết quả đúng với <b>mọi</b> account (mã sai, hết hạn, hết lượt) được gửi làm bằng chứng. Mã hết hạn hoặc lỗi quà cần hai lượt cài đặt độc lập xác nhận trước khi công bố.</span></li>
+        <li><b>Ở lại máy</b><span>Đã dùng hoặc đã nhận, sai account hoặc khu vực, captcha và lỗi tạm thời không bao giờ rời máy này.</span></li>
+      </ul>
+      <p class="note">Một mã đổi thành công ở người khác vẫn là <b>chưa thử</b> với account của bạn.</p>
+    </section>
 
-  <fieldset>
-    <legend>Kho cục bộ và sao lưu cá nhân</legend>
-    <div class="row">
-      <button id="export">Xuất file sao lưu (.json)</button>
-      <button class="danger" id="wipe">Xoá bản sao lưu trên cloud</button>
-      <span class="status" id="status2"></span>
-    </div>
-    <p class="note"><b>Xuất file sao lưu</b> tải toàn bộ kho về máy để giữ lại hoặc chuyển sang máy khác.</p>
-    <p class="note"><b>Xoá bản sao lưu cá nhân</b> chỉ dọn bản chép trên Chrome Sync hoặc endpoint của bạn cùng phần cài đặt ở trên. Kho cộng đồng và kho mã trong máy KHÔNG bị xoá — bạn sẽ không mất mã nào, và sẽ có hộp thoại xác nhận trước khi xoá.</p>
-  </fieldset>
+    <section class="block" id="backup" aria-labelledby="backup-h">
+      <header class="block-hd">
+        <div>
+          <h2 id="backup-h">Sao lưu cá nhân</h2>
+          <p class="lede">Tuỳ chọn. Khớp kho riêng giữa các máy của bạn. Không chia sẻ gì cho kho cộng đồng.</p>
+        </div>
+        <span class="sbadge" id="sync-badge" data-state="off" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="sync-state">Đang tắt</span></span>
+      </header>
+      <label class="setrow">
+        <span class="txt">
+          <span class="t">Bật sao lưu kho riêng</span>
+          <span class="d">Khi tắt, lịch sử và trạng thái account chỉ nằm trên máy này.</span>
+        </span>
+        <span class="switch"><input type="checkbox" id="enabled"><span class="track" aria-hidden="true"></span></span>
+      </label>
+      <fieldset class="cfg" id="cfg" hidden>
+        <legend class="lbl">Nơi sao lưu</legend>
+        <div class="choices">
+          <label class="opt"><input type="radio" name="backend" value="chrome-sync"><span><b>Chrome Sync</b><small>Theo tài khoản Chrome đang đăng nhập. Tối đa khoảng 100 KB.</small></span></label>
+          <label class="opt"><input type="radio" name="backend" value="rest"><span><b>REST endpoint</b><small>Server riêng của bạn. Không giới hạn dung lượng.</small></span></label>
+        </div>
+        <div class="rest" id="rest-only" hidden>
+          <label class="field"><span class="lbl">Endpoint</span>
+            <input class="input" type="url" id="endpoint" placeholder="https://vi-du.com/api/vault" spellcheck="false" autocomplete="off">
+          </label>
+          <label class="field"><span class="lbl">Token <em>(tuỳ chọn)</em></span>
+            <input class="input" type="password" id="token" spellcheck="false" autocomplete="off">
+            <span class="hint">Gửi qua header Authorization. Mọi thông báo lỗi đều đã che token trước khi hiện ra.</span>
+          </label>
+        </div>
+        <label class="setrow">
+          <span class="txt">
+            <span class="t">Tự sao lưu sau mỗi lượt đổi mã</span>
+            <span class="d">Sao lưu lỗi không bao giờ làm mất dữ liệu trên máy.</span>
+          </span>
+          <span class="switch"><input type="checkbox" id="auto"><span class="track" aria-hidden="true"></span></span>
+        </label>
+      </fieldset>
+      <div class="meta" id="sync-meta"></div>
+      <footer class="block-ft">
+        <span class="msg"><span class="status" id="status" role="status" aria-live="polite"></span><span class="dirty" id="dirty" hidden>● Có thay đổi chưa lưu</span></span>
+        <button class="act lg" id="test" type="button" hidden>Kiểm tra kết nối</button>
+        <button class="act primary lg" id="save" type="button">Lưu cài đặt</button>
+      </footer>
+    </section>
+
+    <section class="block" id="local" aria-labelledby="local-h">
+      <header class="block-hd">
+        <div>
+          <h2 id="local-h">Kho trên máy này</h2>
+          <p class="lede">Nguồn dữ liệu chính, lưu trong trình duyệt và dùng được khi không có mạng.</p>
+        </div>
+      </header>
+      <dl class="stats" aria-live="polite">
+        <div><dt>Mã quà</dt><dd id="st-gift">—</dd></div>
+        <div><dt>Mã lắp súng</dt><dd id="st-preset">—</dd></div>
+        <div><dt>Chờ đổi</dt><dd id="st-untried">—</dd></div>
+        <div><dt>Tặng được</dt><dd id="st-share">—</dd></div>
+      </dl>
+      <p class="note">File xuất chứa mã quà, mã lắp súng và trạng thái đổi trên máy này. Không chứa token hay cài đặt.</p>
+      <footer class="block-ft">
+        <span class="msg"><span class="status" id="status2" role="status" aria-live="polite"></span></span>
+        <button class="act lg" id="export-csv" type="button">Xuất CSV</button>
+        <button class="act lg" id="export" type="button">Xuất file sao lưu (.json)</button>
+      </footer>
+    </section>
+
+    <section class="block danger" id="danger" aria-labelledby="danger-h">
+      <header class="block-hd">
+        <div>
+          <h2 id="danger-h">Vùng nguy hiểm</h2>
+          <p class="lede">Không hoàn tác được. Luôn có hộp thoại xác nhận trước khi xoá.</p>
+        </div>
+      </header>
+      <div class="setrow">
+        <span class="txt">
+          <span class="t">Xoá bản sao lưu trên Chrome Sync</span>
+          <span class="d">Xoá bản chép trong Chrome Sync và cài đặt sao lưu, kể cả token. Kho trên máy và kho cộng đồng giữ nguyên. Dữ liệu trên REST endpoint không bị xoá — hãy xoá ở server của bạn.</span>
+        </span>
+        <button class="act danger lg" id="wipe" type="button">Xoá bản sao lưu</button>
+      </div>
+      <p class="status note" id="status3" role="status" aria-live="polite"></p>
+    </section>
+   </main>
+  </div>
  </div>
 
   <script src="options.js"></script>
@@ -1029,96 +1270,253 @@ const optionsHtml = `<!doctype html>
 </html>
 `;
 
-const optionsJs = `/* options.js — reads and writes sync settings through the service worker. */
+const optionsJs = `${BANNER}
+/* options.js — personal backup settings, local vault export, danger zone.
+ * Settings go through the service worker so the token never reaches this
+ * page; the vault is read directly because it is this origin's IndexedDB. */
 (function dfRedeemOptions() {
   'use strict';
+  const root = window;
+${schema}
+${vault}
+  const STATUS_KEY = 'dfRedeemSyncStatus';
   const $ = (id) => document.getElementById(id);
   const ask = (op, payload) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op, payload });
-
-  function flash(el, message, ok) {
+  const errText = (res) => (res && res.error) || 'không rõ';
+${uiWhen}
+  const timers = new Map();
+  function flash(el, message, tone) {
     el.textContent = message;
-    el.className = 'status ' + (ok ? 'ok' : 'err');
-    setTimeout(() => { el.textContent = ''; }, 4000);
+    el.dataset.tone = tone || '';
+    clearTimeout(timers.get(el));
+    if (tone !== 'busy') {
+      timers.set(el, setTimeout(() => { el.textContent = ''; el.dataset.tone = ''; }, 5000));
+    }
   }
 
-  function toggleRest() { $('rest-only').hidden = $('backend').value !== 'rest'; }
+  /* ── personal backup form ── */
+  let saved = null;
+  let enabledSaved = false;
+
+  function backendValue() {
+    const picked = document.querySelector('input[name="backend"]:checked');
+    return picked ? picked.value : 'chrome-sync';
+  }
+  function setBackend(value) {
+    document.querySelectorAll('input[name="backend"]').forEach((radio) => { radio.checked = radio.value === value; });
+  }
+  function formState() {
+    return {
+      enabled: $('enabled').checked,
+      backend: backendValue(),
+      endpoint: $('endpoint').value.trim(),
+      autoSync: $('auto').checked,
+      token: $('token').value !== '',
+    };
+  }
+  const isDirty = () => Boolean(saved) && JSON.stringify(formState()) !== JSON.stringify(saved);
+
+  function syncUi() {
+    $('cfg').hidden = !$('enabled').checked;
+    $('rest-only').hidden = backendValue() !== 'rest';
+    $('test').hidden = !$('enabled').checked;
+    $('dirty').hidden = !isDirty();
+  }
 
   function renderSyncStatus(status) {
-    const state = $('sync-state');
-    const last = $('sync-last');
-    const count = $('sync-count');
-    if (!state) return;
-    const labels = { ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', error: 'Lỗi đồng bộ', 'never-synced': 'Chưa đồng bộ' };
-    const value = status && status.state || 'never-synced';
-    state.textContent = labels[value] || value;
-    state.className = value === 'error' ? 'err' : value === 'ok' ? 'ok' : '';
-    last.textContent = status && status.lastSyncAt ? 'Lần cuối: ' + new Date(status.lastSyncAt).toLocaleString() : '';
-    count.textContent = status && Number.isFinite(Number(status.recordCount)) ? String(status.recordCount) + ' mã' : '';
-    if (value === 'error' && status.error) state.title = status.error;
-    else state.removeAttribute('title');
-  }
-
-  async function refreshSyncStatus() {
-    const status = await ask('status');
-    renderSyncStatus(status || { state: 'never-synced' });
+    const state = !enabledSaved ? 'off' : (status && status.state) || 'never-synced';
+    const labels = { off: 'Đang tắt', ok: 'Đã sao lưu', syncing: 'Đang sao lưu…', error: 'Sao lưu lỗi', 'never-synced': 'Chưa sao lưu' };
+    $('sync-badge').dataset.state = state;
+    $('sync-state').textContent = labels[state] || state;
+    const meta = $('sync-meta');
+    meta.textContent = '';
+    if (state === 'off') return;
+    const add = (text, cls) => {
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (cls) span.className = cls;
+      meta.appendChild(span);
+    };
+    if (status && status.lastSyncAt) add('Lần cuối: ' + when(status.lastSyncAt));
+    if (status && Number.isFinite(Number(status.recordCount)) && status.recordCount !== null) add(String(status.recordCount) + ' mã trong bản sao lưu');
+    if (state === 'error' && status && status.error) add(status.error, 'err');
   }
 
   async function load() {
     const settings = (await ask('getSettings')) || {};
     $('enabled').checked = settings.enabled === true;
-    $('backend').value = settings.backend || 'chrome-sync';
+    setBackend(settings.backend || 'chrome-sync');
     $('endpoint').value = settings.endpoint || '';
-    $('auto').checked = settings.autoSync !== false;
+    $('auto').checked = settings.autoSync === true;
+    $('token').value = '';
     /* hasToken is a boolean flag; the token itself never leaves the worker. */
-    if (settings.hasToken) $('token').placeholder = '•••••• (đã lưu — để trống nếu không đổi)';
-    toggleRest();
-    await refreshSyncStatus();
+    $('token').placeholder = settings.hasToken ? 'Đã lưu token — nhập để thay' : 'Để trống nếu endpoint không cần xác thực';
+    enabledSaved = settings.enabled === true;
+    saved = formState();
+    syncUi();
+    renderSyncStatus(await ask('status'));
   }
 
-  $('backend').addEventListener('change', toggleRest);
+  function validEndpoint(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' || url.protocol === 'http:';
+    } catch (_) { return false; }
+  }
 
-  $('save').addEventListener('click', async () => {
-    const payload = {
-      enabled: $('enabled').checked,
-      backend: $('backend').value,
-      endpoint: $('endpoint').value.trim(),
-      autoSync: $('auto').checked,
-    };
+  async function save() {
+    const form = formState();
+    if (form.enabled && form.backend === 'rest' && !validEndpoint(form.endpoint)) {
+      flash($('status'), 'Endpoint phải là địa chỉ http(s) đầy đủ.', 'err');
+      $('endpoint').focus();
+      return false;
+    }
+    const payload = { enabled: form.enabled, backend: form.backend, endpoint: form.endpoint, autoSync: form.autoSync };
     const token = $('token').value;
     if (token) payload.token = token;
     const res = await ask('setSettings', payload);
     $('token').value = '';
-    flash($('status'), res && res.ok ? 'Đã lưu.' : 'Lỗi: ' + ((res && res.error) || 'không rõ'), res && res.ok);
-    if (res && res.ok) load();
+    if (!res || !res.ok) {
+      flash($('status'), 'Không lưu được: ' + errText(res), 'err');
+      return false;
+    }
+    flash($('status'), 'Đã lưu.', 'ok');
+    await load();
+    return true;
+  }
+
+  ['enabled', 'auto', 'endpoint', 'token'].forEach((id) => {
+    $(id).addEventListener('input', syncUi);
+    $(id).addEventListener('change', syncUi);
+  });
+  document.querySelectorAll('input[name="backend"]').forEach((radio) => radio.addEventListener('change', syncUi));
+
+  $('save').addEventListener('click', async () => {
+    $('save').disabled = true;
+    try { await save(); } finally { $('save').disabled = false; }
   });
 
+  /* The worker tests the STORED settings, so unsaved edits are saved first —
+   * otherwise "test" would silently check the previous configuration. */
   $('test').addEventListener('click', async () => {
-    flash($('status'), 'Đang kiểm tra…', true);
-    const res = await ask('test');
-    flash($('status'), res && res.ok ? 'Kết nối tốt.' : 'Thất bại: ' + ((res && res.error) || 'không rõ'), res && res.ok);
-    renderSyncStatus(res && res.status ? res.status : { state: 'error', error: res && res.error });
+    const btn = $('test');
+    btn.disabled = true;
+    try {
+      if (isDirty() && !(await save())) return;
+      flash($('status'), 'Đang kiểm tra…', 'busy');
+      const res = await ask('test');
+      flash($('status'), res && res.ok ? 'Kết nối tốt, đã đồng bộ.' : 'Thất bại: ' + errText(res), res && res.ok ? 'ok' : 'err');
+      renderSyncStatus(res && res.status ? res.status : { state: 'error', error: errText(res) });
+    } finally {
+      syncUi();
+    }
   });
 
-  $('export').addEventListener('click', async () => {
-    const res = await ask('export');
-    if (!res || !res.ok) { flash($('status2'), 'Không xuất được.', false); return; }
-    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    await chrome.downloads?.download?.({ url, filename: 'df-redeem-vault.json' }).catch(() => {});
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[STATUS_KEY]) renderSyncStatus(changes[STATUS_KEY].newValue);
+  });
+  window.addEventListener('beforeunload', (event) => {
+    if (!isDirty()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  /* ── local vault ── */
+  let vaultPromise = null;
+  function openVault() {
+    if (!vaultPromise) {
+      const v = new root.DFRedeemVault.Vault({ adapter: new root.DFRedeemVault.IndexedDBAdapter() });
+      vaultPromise = v.init().then(() => v);
+      vaultPromise.catch(() => { vaultPromise = null; });
+    }
+    return vaultPromise;
+  }
+
+  async function loadStats() {
+    try {
+      const all = await (await openVault()).all();
+      const gifts = all.filter((r) => r.kind !== 'preset');
+      $('st-gift').textContent = gifts.length;
+      $('st-preset').textContent = all.length - gifts.length;
+      $('st-untried').textContent = gifts.filter((r) => r.status === 'untried').length;
+      $('st-share').textContent = gifts.filter((r) => r.status === 'success' || r.status === 'mine').length;
+    } catch (e) {
+      flash($('status2'), 'Không đọc được kho: ' + (e && e.message || e), 'err');
+    }
+  }
+
+  function download(text, name, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
     const a = document.createElement('a');
-    a.href = url; a.download = 'df-redeem-vault.json'; a.click();
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    flash($('status2'), 'Đã xuất.', true);
-  });
+  }
+  /* Local calendar date: an evening export in UTC+7 must not be named after
+   * the previous day. */
+  const stamp = () => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  };
 
+  async function exportAs(btn, kind) {
+    btn.disabled = true;
+    try {
+      const v = await openVault();
+      const count = (await v.all()).length;
+      if (kind === 'json') download(await v.exportJSON(), 'df-redeem-kho-' + stamp() + '.json', 'application/json');
+      else download(await v.exportCSV(), 'df-redeem-kho-' + stamp() + '.csv', 'text/csv;charset=utf-8');
+      flash($('status2'), 'Đã xuất ' + count + ' mã.', 'ok');
+    } catch (e) {
+      flash($('status2'), 'Không xuất được: ' + (e && e.message || e), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  $('export').addEventListener('click', () => exportAs($('export'), 'json'));
+  $('export-csv').addEventListener('click', () => exportAs($('export-csv'), 'csv'));
+
+  /* ── danger zone ── */
   $('wipe').addEventListener('click', async () => {
-    if (!confirm(['Xoá bản sao lưu trên cloud và cài đặt đồng bộ?', '', 'Kho mã trong máy này KHÔNG bị xoá — bạn không mất mã nào.'].join(String.fromCharCode(10)))) return;
+    const lines = [
+      'Xoá bản sao lưu trên Chrome Sync và cài đặt sao lưu (kể cả token)?',
+      '',
+      'Kho mã trên máy này KHÔNG bị xoá. Dữ liệu trên REST endpoint (nếu có) cũng không bị xoá.',
+    ];
+    if (!confirm(lines.join(String.fromCharCode(10)))) return;
     const res = await ask('wipe');
-    flash($('status2'), res && res.ok ? 'Đã xoá.' : 'Lỗi.', res && res.ok);
-    load();
+    flash($('status3'), res && res.ok ? 'Đã xoá bản sao lưu và cài đặt.' : 'Không xoá được: ' + errText(res), res && res.ok ? 'ok' : 'err');
+    await load();
   });
 
-  load();
+  /* ── section nav: mark the section in view ──
+   * The last section is short, so at the bottom of the page it never reaches
+   * the reading line; the bottom of the page therefore always selects it. */
+  const links = Array.from(document.querySelectorAll('.toc a'));
+  const sections = Array.from(document.querySelectorAll('.block'));
+  function spy() {
+    const line = window.innerHeight * 0.3;
+    const page = document.documentElement.scrollHeight;
+    const atBottom = page > window.innerHeight + 2 && window.scrollY + window.innerHeight >= page - 2;
+    let current = sections[0];
+    sections.forEach((section) => { if (section.getBoundingClientRect().top <= line) current = section; });
+    if (atBottom) current = sections[sections.length - 1];
+    links.forEach((a) => a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + current.id)));
+  }
+  let spyFrame = 0;
+  window.addEventListener('scroll', () => {
+    if (!spyFrame) spyFrame = requestAnimationFrame(() => { spyFrame = 0; spy(); });
+  }, { passive: true });
+  window.addEventListener('hashchange', spy);
+  window.addEventListener('resize', spy);
+  spy();
+
+  /* Sections change height once settings and stats arrive; re-mark then. */
+  Promise.allSettled([load(), loadStats()]).then(spy);
 }());
 `;
 
