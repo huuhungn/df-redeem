@@ -143,6 +143,11 @@ for (const [file, label] of [['extension/content.js', 'extension drawer'], ['ext
   for (let i = syncBlock.indexOf('{'); i < syncBlock.length; i += 1) {
     const ch = syncBlock[i];
     if (quote) { if (ch === quote && syncBlock[i - 1] !== '\\') quote = ''; continue; }
+    /* Skip comments before looking for quotes: an apostrophe in prose such as
+     * "HQ's codes" otherwise opens a phantom string that swallows the next key,
+     * and the check reports a method missing that the literal plainly has. */
+    if (ch === '/' && syncBlock[i + 1] === '*') { const e = syncBlock.indexOf('*/', i + 2); i = e < 0 ? syncBlock.length : e + 1; continue; }
+    if (ch === '/' && syncBlock[i + 1] === '/') { const e = syncBlock.indexOf('\n', i + 2); i = e < 0 ? syncBlock.length : e; continue; }
     if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue; }
     if (ch === '{' || ch === '(' || ch === '[') { d += 1; continue; }
     if (ch === '}' || ch === ')' || ch === ']') { d -= 1; if (d === 0) break; continue; }

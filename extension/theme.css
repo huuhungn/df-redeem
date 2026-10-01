@@ -657,6 +657,33 @@
 }
 .df .pc-ft { display: flex; align-items: center; gap: 7px; }
 .df .pc-ft .muted { flex: 1; font-size: 10px; }
+
+/* ── HQ review ─────────────────────────────────────────────────────────── */
+/* Sits inside the Preset view between the filters and the class chips. Rows
+ * are a list, not a grid: each needs room for the gun, the title and a 21-char
+ * code, and the pick button must stay in the same column to scan quickly. */
+.df .hq-review .hq-note { margin: 0 0 8px; font-size: 11px; line-height: 1.4; }
+.df .hq-review .hq-err { margin: 0 0 8px; color: var(--danger); font-size: 12px; }
+.df .hq-group + .hq-group { margin-top: 10px; }
+.df .hq-group-hd { margin-bottom: 6px; font-size: 11px; font-weight: 700; color: var(--ink-dim); }
+.df .hq-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.df .hq-row {
+  min-width: 0;
+  display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px;
+  border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--sunken);
+}
+.df .hq-row.on { border-color: var(--primary-dim); }
+.df .hq-row.hq-known { opacity: .62; }
+.df .hq-row > .chip, .df .hq-row > .tag { flex: 0 0 auto; margin-top: 1px; }
+.df .hq-main { min-width: 0; flex: 1; display: grid; gap: 3px; font-size: 12px; }
+.df .hq-main .muted { font-size: 10.5px; }
+.df .hq-code { font-size: 11px; letter-spacing: .3px; overflow-wrap: anywhere; user-select: all; }
+.df .hq-price { color: var(--ink-dim); }
+.df .hq-actions { align-items: center; margin-top: 10px; }
+/* On the full-page app the filter row falls back to the generic two-column
+ * .two grid (the drawer's .filters.two rule is not loaded there), which
+ * stretched this button to half the page. Keep it at its own width. */
+.df .filters > .hq-open { justify-self: start; }
 .df .tag {
   padding: 1px 6px; border: 1px solid var(--line); border-radius: 99px;
   color: var(--ink-mute);

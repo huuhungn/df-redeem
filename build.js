@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.2.2';
+const VERSION = '3.3.0';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -60,6 +60,19 @@ const garena = inline('garena.js');
 const engine = inline('engine.js');
 const weapons = inline('weapons.js');
 const costs = inline('costs.js');
+/* HQ recommended codes: bundled into the worker (fetches the public files) and
+ * the two HQ-page content scripts (read prices). Not part of CORE: the panel
+ * receives HQ data through the worker, never by talking to HQ itself. */
+const hq = inline('hq.js');
+/* hq-capture.js runs in the HQ page's own JS world, so hq.js must not attach
+ * DFRedeemHQ to that page's window. Bind its IIFE to a private object instead,
+ * and fail the build if the attach line ever changes shape. */
+const HQ_ATTACH = "}(typeof globalThis !== 'undefined' ? globalThis : this));";
+if (hq.split(HQ_ATTACH).length !== 2) {
+  console.error('BUILD FAILED — src/core/hq.js attach line changed; update HQ_ATTACH in build.js');
+  process.exit(1);
+}
+const hqPrivate = hq.replace(HQ_ATTACH, '}(scope));');
 const seed = JSON.stringify(JSON.parse(warnRead(path.join(SRC, 'data', 'seed.json')) || '{}'));
 const uiDir = path.join(SRC, 'ui');
 const uiFiles = fs.existsSync(uiDir)
@@ -226,6 +239,9 @@ ${UI}
     reportCost: (code, cost, mode) => askBridge('reportCost', { code, cost, mode }),
     getLocal: (key) => askBridge('getPanelState', { key }).then((r) => (r && r.ok ? r.value : null)),
     setLocal: (key, value) => askBridge('setPanelState', { key, value }),
+    /* HQ's recommended codes, fetched by the worker (the files send no CORS
+     * header). Prices come back separately and are display-only. */
+    hqFetch: () => askBridge('hqFetch'),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -335,6 +351,11 @@ const manifest = {
     'https://redeem.df.garena.sg/*',
     'https://raw.githubusercontent.com/huuhungn/df-redeem/*',
     'https://df-redeem-vault.huuhungn.workers.dev/*',
+    /* HQ's public recommended-code files. They send no CORS header, so only
+     * the worker can read them. Just this folder: the logged-in HQ API host
+     * (sg-act.playerinfinite.com) is deliberately absent, because calling it
+     * would need the player's HQ openid/token. */
+    'https://www.playdeltaforce.com/gun-codes/*',
   ],
   /* Spelling out the default MV3 policy documents that nothing here needs eval
    * or remote script, and makes any future loosening an explicit, reviewable
@@ -360,6 +381,24 @@ const manifest = {
     matches: ['https://redeem.df.garena.sg/*'],
     js: ['bridge.js'],
     run_at: 'document_idle',
+    world: 'ISOLATED',
+    all_frames: false,
+  }, {
+    /* HQ build prices exist only in the logged-in API reply the HQ page itself
+     * requests. This MAIN-world tap reads those replies (never the request,
+     * which carries the session) and must be in place before the page's own
+     * scripts fire, hence document_start. */
+    matches: ['https://www.playdeltaforce.com/events/hq/*'],
+    js: ['hq-capture.js'],
+    run_at: 'document_start',
+    world: 'MAIN',
+    all_frames: false,
+  }, {
+    /* ISOLATED relay for the tap: re-checks the prices and hands them to the
+     * worker. It can send one message type and nothing else. */
+    matches: ['https://www.playdeltaforce.com/events/hq/*'],
+    js: ['hq-bridge.js'],
+    run_at: 'document_start',
     world: 'ISOLATED',
     all_frames: false,
   }],
@@ -388,6 +427,104 @@ const bridge = `/* bridge.js — ISOLATED-world relay between the MAIN-world pan
   });
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'DF_REDEEM_OPEN') window.postMessage({ channel: 'df-redeem-open' }, window.location.origin);
+  });
+}());
+`;
+
+/* ── HQ page (playdeltaforce.com/events/hq/*) ──────────────────────────── */
+/* String.raw keeps the regex escapes literal; nothing here may use a backtick. */
+const hqCapture = String.raw`/* hq-capture.js — MAIN world on the Delta Force HQ page.
+ * Reads build prices out of DfTools/ListGunCodeSchemes replies the page already
+ * received. The request is never read, stored or forwarded: its query string
+ * and body carry the player's HQ openid/token. Only { code, price } pairs that
+ * pass hq.js's checks leave this script. */
+(function tapHqPrices() {
+  'use strict';
+  const scope = {};
+  ${hqPrivate}
+  const HQ = scope.DFRedeemHQ;
+  const ENDPOINT = /\/DfTools\/ListGunCodeSchemes(?:[?#]|$)/;
+  const isSchemeList = (url) => {
+    try { return ENDPOINT.test(String(url == null ? '' : url)); } catch (_) { return false; }
+  };
+  const forward = (body) => {
+    const prices = HQ.sanitizePrices(body);
+    const items = Object.keys(prices).map((code) => ({ code, price: prices[code] }));
+    if (items.length) window.postMessage({ channel: 'df-redeem-hq-prices', items }, window.location.origin);
+  };
+  const forwardText = (text) => {
+    let body;
+    try { body = JSON.parse(text); } catch (_) { return; }
+    forward(body);
+  };
+
+  /* Marked requests live in a WeakSet so nothing is written onto the page's
+   * own XHR objects, and the URL is only tested, never kept. */
+  const XHR = window.XMLHttpRequest && window.XMLHttpRequest.prototype;
+  if (XHR && typeof XHR.open === 'function' && typeof XHR.send === 'function') {
+    const marked = new WeakSet();
+    const open = XHR.open;
+    const send = XHR.send;
+    XHR.open = function (method, url) {
+      if (isSchemeList(url)) marked.add(this); else marked.delete(this);
+      return open.apply(this, arguments);
+    };
+    XHR.send = function () {
+      if (marked.has(this)) {
+        const xhr = this;
+        xhr.addEventListener('loadend', () => {
+          try {
+            if (xhr.status !== 200) return;
+            if (xhr.responseType === 'json') forward(xhr.response);
+            else if (xhr.responseType === '' || xhr.responseType === 'text') forwardText(xhr.responseText);
+          } catch (_) { /* never break the page over a price */ }
+        }, { once: true });
+      }
+      return send.apply(this, arguments);
+    };
+  }
+
+  const pageFetch = window.fetch;
+  if (typeof pageFetch === 'function') {
+    window.fetch = function (input) {
+      const pending = pageFetch.apply(this, arguments);
+      let hit = false;
+      try { hit = isSchemeList(input && typeof input === 'object' && 'url' in input ? input.url : input); } catch (_) {}
+      if (hit) {
+        pending.then((res) => {
+          if (res && res.ok && typeof res.clone === 'function') res.clone().text().then(forwardText, () => {});
+        }, () => {});
+      }
+      return pending;
+    };
+  }
+}());
+`;
+
+const hqBridge = `/* hq-bridge.js — ISOLATED-world relay on the HQ page. Takes the prices
+ * hq-capture.js posted, re-checks them (the page shares that channel), and
+ * sends them to the worker as the one message type it is allowed. */
+(function dfRedeemHqBridge() {
+  'use strict';
+  ${hq}
+  const HQ = globalThis.DFRedeemHQ;
+  /* The page sees and can forge window messages. Prices are re-validated
+   * here, and a page cannot flood the worker with them. */
+  const MAX_MESSAGES = 50;
+  let sent = 0;
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.origin !== window.location.origin) return;
+    const msg = event.data;
+    if (!msg || msg.channel !== 'df-redeem-hq-prices' || !Array.isArray(msg.items)) return;
+    if (sent >= MAX_MESSAGES) return;
+    const prices = HQ.sanitizePrices(msg.items);
+    const items = Object.keys(prices).map((code) => ({ code, price: prices[code] }));
+    if (!items.length) return;
+    sent += 1;
+    try {
+      const pending = chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqPrices', payload: { items } });
+      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+    } catch (_) { /* extension reloaded: the page keeps working */ }
   });
 }());
 `;
@@ -538,10 +675,27 @@ ${UI}
     getLocal: (key) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'getPanelState', payload: { key } }).then((r) => (r && r.ok ? r.value : null)),
     setLocal: (key, value) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'setPanelState', payload: { key, value } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
+    hqFetch: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqFetch' }),
   };
-  const panel = createPanel({ version: '${VERSION}', target: 'page', surface: 'page', sync });
+  const panel = createPanel({
+    version: '${VERSION}', target: 'page', surface: 'page', sync,
+    /* The view below is a clone, refreshed right after each click. The HQ
+     * review repaints seconds later when the fetch or the import finishes, so
+     * the panel calls back and the visible clone is replaced then. */
+    onRepaint: (name) => {
+      const on = document.querySelector('.side-nav .on');
+      if (on && on.dataset.view === name) recloneView();
+    },
+  });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
+
+  function recloneView() {
+    const rendered = panel._shadow.querySelector('.view-host .pad');
+    if (!rendered) return;
+    host.innerHTML = '';
+    host.appendChild(rendered.cloneNode(true));
+  }
 
   nav.innerHTML = VIEWS.map((v) =>
     '<button data-view="' + v + '"><span class="vi">' + ICONS[v] + '</span>' + LABELS[v] + '</button>').join('');
@@ -585,7 +739,16 @@ ${UI}
       + (btn.dataset.code ? '[data-code="' + btn.dataset.code + '"]' : '')
       + (btn.dataset.k ? '[data-k="' + btn.dataset.k + '"]' : '');
     const twin = panel._shadow.querySelector(twinSelector);
-    if (twin) { twin.click(); setTimeout(() => show(panel._views.find((v) => document.querySelector('.side-nav .on').dataset.view === v)), 30); }
+    if (twin) {
+      twin.click();
+      /* Re-cloning replaces the clicked button. Keep keyboard focus on its copy
+       * when it survives the repaint, or Tab restarts from the top of the page. */
+      const hadFocus = document.activeElement === btn;
+      setTimeout(() => show(panel._views.find((v) => document.querySelector('.side-nav .on').dataset.view === v)).then(() => {
+        const again = hadFocus && host.querySelector(twinSelector);
+        if (again && !again.disabled) again.focus();
+      }), 30);
+    }
   });
   host.addEventListener('input', (e) => {
     const cls = e.target.className;
@@ -962,6 +1125,7 @@ const optionsJs = `/* options.js — reads and writes sync settings through the 
 const background = `/* background.js — toolbar action plus the sync broker.
  * The worker is the only place the sync token is read or used. */
 ${CORE_SYNC}
+${hq}
 const SETTINGS_KEY = DFRedeemSync.SETTINGS_KEY;
 /* Shared across every surface, unlike the per-origin IndexedDB vaults. */
 const HISTORY_KEY = 'df_redeem_history_mirror';
@@ -970,6 +1134,80 @@ const HISTORY_CAP = 500;
  * allowed keys explicit stops the bridge from becoming a general storage API
  * that any page script could write settings through. */
 const PANEL_STATE_KEYS = { costsLocal: 'df_redeem_costs_local' };
+
+/* ── HQ recommended codes ───────────────────────────────────────────────── */
+/* Prices hq-capture.js read on the HQ page. Local only: they are shown next to
+ * a build and never reach the community vault. */
+const HQ_PRICES_KEY = 'df_redeem_hq_prices';
+const HQ_FETCH_TIMEOUT_MS = 20000;
+const HQ_PAGE_PREFIX = DFRedeemHQ.HQ_ORIGIN + '/events/hq/';
+
+async function fetchHqSource(source) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), HQ_FETCH_TIMEOUT_MS) : null;
+  try {
+    /* credentials: 'omit' keeps the player's playdeltaforce.com session
+     * cookies off the request; the files are public and need none. */
+    const res = await fetch(source.url, {
+      credentials: 'omit', cache: 'no-store', redirect: 'error', signal: ctrl ? ctrl.signal : undefined,
+    });
+    if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 0));
+    const groups = DFRedeemHQ.parseSchemeFile(await res.text(), source.varName);
+    return DFRedeemHQ.normalizeSchemes(groups, source.mode);
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error('quá thời gian chờ');
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function readHqPrices() {
+  const got = await chrome.storage.local.get(HQ_PRICES_KEY);
+  /* Re-validated on every read: storage outlives the code that wrote it. */
+  return DFRedeemHQ.mergePrices(got[HQ_PRICES_KEY] || {}, {}, '');
+}
+
+async function hqFetch() {
+  const settled = await Promise.all(DFRedeemHQ.SOURCES.map((source) => fetchHqSource(source).then(
+    (items) => ({ source, items }),
+    (error) => ({ source, error: String(error && error.message || error) }),
+  )));
+  const items = [];
+  const seen = new Set();
+  const failed = [];
+  for (const result of settled) {
+    if (result.error) { failed.push({ mode: result.source.mode, error: result.error }); continue; }
+    for (const item of result.items) {
+      if (seen.has(item.code)) continue;
+      seen.add(item.code);
+      items.push(item);
+    }
+  }
+  if (!items.length) {
+    const why = failed.map((f) => f.mode + ': ' + f.error).join('; ') || 'HQ không có mã nào';
+    return { ok: false, error: 'Không tải được mã HQ — ' + why, items: [], prices: {}, failed };
+  }
+  const stored = await readHqPrices();
+  const prices = {};
+  for (const item of items) if (stored[item.code]) prices[item.code] = stored[item.code].price;
+  return { ok: true, items, prices, failed };
+}
+
+/* Only hq-bridge.js on the HQ page may report prices. The redeem-page bridge
+ * relays any op its page asks for, so the sender URL is what tells them apart. */
+async function hqSavePrices(payload, sender) {
+  const from = sender && typeof sender.url === 'string' ? sender.url : '';
+  if (from.indexOf(HQ_PAGE_PREFIX) !== 0) return { ok: false, error: 'Nguồn giá HQ không hợp lệ.' };
+  const fresh = DFRedeemHQ.sanitizePrices(payload && payload.items);
+  const saved = Object.keys(fresh).length;
+  if (!saved) return { ok: true, saved: 0 };
+  const got = await chrome.storage.local.get(HQ_PRICES_KEY);
+  await chrome.storage.local.set({
+    [HQ_PRICES_KEY]: DFRedeemHQ.mergePrices(got[HQ_PRICES_KEY] || {}, fresh, new Date().toISOString()),
+  });
+  return { ok: true, saved };
+}
 
 function service() {
   return DFRedeemSync.createSyncService({ chromeApi: chrome, fetchFn: (...a) => fetch(...a) });
@@ -999,7 +1237,11 @@ function toUi(settings) {
   };
 }
 
-async function handleSync(op, payload) {
+async function handleSync(op, payload, sender) {
+  /* HQ ops need neither sync settings nor the token, so they run before the
+   * settings read. */
+  if (op === 'hqFetch') return hqFetch();
+  if (op === 'hqPrices') return hqSavePrices(payload, sender);
   const svc = service();
   const stored = await svc.getLocal({ [SETTINGS_KEY]: DFRedeemSync.DEFAULT_SETTINGS });
   const current = { ...DFRedeemSync.DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] || {}) };
@@ -1111,9 +1353,9 @@ async function handleSync(op, payload) {
   return { ok: false, error: 'Lệnh không hợp lệ: ' + op };
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   if (!msg || msg.type !== 'DF_REDEEM_SYNC') return false;
-  handleSync(msg.op, msg.payload)
+  handleSync(msg.op, msg.payload, sender)
     .then((result) => respond(result))
     .catch((error) => respond({ ok: false, error: String(error && error.message || error).replace(/Bearer\\s+[^\\s"']+/gi, 'Bearer [redacted]') }));
   return true; /* keep the channel open for the async reply */
@@ -1154,6 +1396,8 @@ const written = [
   write(path.join(EXT, 'content.js'), contentScript),
   write(path.join(EXT, 'background.js'), background),
   write(path.join(EXT, 'bridge.js'), bridge),
+  write(path.join(EXT, 'hq-capture.js'), hqCapture),
+  write(path.join(EXT, 'hq-bridge.js'), hqBridge),
   write(path.join(EXT, 'options.html'), optionsHtml),
   write(path.join(EXT, 'options.js'), optionsJs),
   write(path.join(EXT, 'theme.css'), themeCss),

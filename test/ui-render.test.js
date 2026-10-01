@@ -1130,6 +1130,169 @@ test('no two buttons in a view share the same accessible name', async () => {
     'two different actions answer to the same spoken name: ' + collisions.join(' | '));
 });
 
+/* ── HQ review ─────────────────────────────────────────────────────────── */
+const HQ_NEW_A = 'HQNEWAAAAAAAAAAAAAAA1';
+const HQ_NEW_B = 'HQNEWBBBBBBBBBBBBBBB2';
+const HQ_HAVE = 'HQHAVECCCCCCCCCCCCCC3';
+
+/* A panel whose hqFetch stays pending until the test releases it. */
+async function hqPanel(reply, extra) {
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  await v.upsert({ kind: 'preset', code: HQ_HAVE.toLowerCase(), weapon: 'Bản của tôi', mode: 'Chiến Dịch Sinh Tồn', author: 'me' });
+  let release;
+  const calls = [];
+  const repaints = [];
+  const p = sandbox.__createPanel(Object.assign({
+    version: '3.3.0', target: 'test', vault: v,
+    sync: { hqFetch: () => { calls.push(1); return new Promise((res) => { release = () => res(reply); }); } },
+    onRepaint: (name) => repaints.push(name),
+  }, extra || {}));
+  await p.go('presets');
+  return { p, v, calls, repaints, release: () => release() };
+}
+
+const HQ_REPLY = {
+  ok: true,
+  items: [
+    { code: HQ_NEW_A, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn', title: 'M4 leo rank', author: 'HQ', tags: ['meta'] },
+    { code: HQ_NEW_B, weapon: 'AKM', mode: 'Chiến Trường Toàn Diện', title: 'AKM giữ điểm', author: 'HQ', tags: [] },
+    { code: HQ_HAVE, weapon: 'Vector', mode: 'Chiến Dịch Sinh Tồn', title: 'Đè bản của tôi', author: 'HQ', tags: [] },
+    { code: 'not-a-code', weapon: 'Rác', mode: 'x' },
+  ],
+  prices: { [HQ_NEW_A]: 412000, [HQ_HAVE]: 99000, 'NOTINREPLYXXXXXXXXXXX': 5 },
+  failed: [],
+};
+
+test('HQ review: button opens a loading frame, then lists new and known codes', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  const btn = sd.querySelector('[data-act="hq-import"]');
+  assert(btn, 'Preset view must show the "Nhập từ HQ" button when the host can fetch HQ');
+  assert(/Nhập từ HQ/.test(btn.textContent), 'button label must read "Nhập từ HQ"');
+  btn.click();
+  await until(() => sd.querySelector('.hq-review[aria-busy="true"]'), 'clicking must open a loading frame before the reply');
+  assert(h.calls.length === 1, 'one click must fetch once');
+  h.release();
+  const frame = await until(() => sd.querySelector('.hq-row') && sd.querySelector('.hq-review'),
+    'the review must list codes once HQ answers');
+  assert(frame.getAttribute('aria-busy') == null, 'the ready frame must no longer be busy');
+  const text = frame.textContent;
+  assert(text.includes(HQ_NEW_A) && text.includes(HQ_NEW_B), 'both new codes must be listed');
+  assert(!/not-a-code/i.test(text), 'a malformed code must never reach the review');
+  assert(sd.querySelectorAll('.hq-row').length === 3, 'expected 3 valid rows, got ' + sd.querySelectorAll('.hq-row').length);
+  assert(h.repaints.includes('presets'), 'the late repaint must tell the page host to re-clone the view');
+});
+
+test('HQ review: a code already in the library shows "đã có" and cannot be picked', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-row'), 'review must render');
+  const known = sd.querySelectorAll('.hq-row').find((r) => r.textContent.includes(HQ_HAVE));
+  assert(known, 'the known code must still be listed so the user sees HQ has it');
+  assert(/đã có/.test(known.textContent), 'a code already saved (in any casing) must be marked "đã có"');
+  assert(!known.querySelector('[data-act="hq-toggle"]'), 'a known code must have no pick button');
+  const toggles = sd.querySelectorAll('[data-act="hq-toggle"]').map((b) => b.dataset.code);
+  assert(toggles.length === 2 && toggles.includes(HQ_NEW_A) && toggles.includes(HQ_NEW_B), 'only new codes are pickable: ' + toggles.join(','));
+});
+
+test('HQ review: price is shown for reference only and never becomes a cost', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-row'), 'review must render');
+  const rowA = sd.querySelectorAll('.hq-row').find((r) => r.textContent.includes(HQ_NEW_A));
+  const price = rowA.querySelector('.hq-price');
+  assert(price && /Giá HQ/.test(price.textContent), 'a priced code must show its HQ price');
+  assert(/không dùng làm chi phí/.test(price.getAttribute('title') || ''), 'the price must say it is not used as equipment cost');
+  assert(/Giá HQ chỉ để xem/.test(sd.querySelector('.hq-review').textContent), 'the frame must state the price is display-only');
+  const rowB = sd.querySelectorAll('.hq-row').find((r) => r.textContent.includes(HQ_NEW_B));
+  assert(!rowB.querySelector('.hq-price'), 'an unpriced code must not invent a price');
+
+  sd.querySelector('[data-act="hq-commit"]').click();
+  await until(() => !sd.querySelector('.hq-review'), 'import must close the review');
+  const saved = (await h.v.presets()).find((r) => String(r.code).toUpperCase() === HQ_NEW_A);
+  assert(saved, 'the picked code must be saved');
+  const row = await h.v.adapter.get('presets', saved.code);
+  for (const rec of [saved, row].filter(Boolean)) {
+    assert(!('cost' in rec) && !('cost_state' in rec), 'an HQ import must never carry a cost: ' + JSON.stringify(rec));
+  }
+  const card = sd.querySelectorAll('.pcard').find((c) => c.textContent.includes(HQ_NEW_A));
+  assert(card, 'the imported preset must show in the library grid');
+  assert(!/412/.test(card.textContent), 'the preset card must not show the HQ price as its cost');
+});
+
+test('HQ review: toggles drive what is imported and never overwrite a saved code', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-row'), 'review must render');
+  const commit = () => sd.querySelector('[data-act="hq-commit"]');
+  assert(/Nhập 2 mã/.test(commit().textContent), 'every new code starts picked: ' + commit().textContent);
+
+  sd.querySelector('[data-act="hq-pick-none"]').click();
+  assert(commit().getAttribute('disabled') != null, 'with nothing picked, import must be disabled');
+  sd.querySelector(`[data-act="hq-toggle"][data-code="${HQ_NEW_B}"]`).click();
+  const on = sd.querySelector(`[data-act="hq-toggle"][data-code="${HQ_NEW_B}"]`);
+  assert(on.getAttribute('aria-pressed') === 'true', 'a picked code must report aria-pressed=true');
+  /* The repaint replaces the button; a keyboard user must stay on it. */
+  assert(dom.focusState() === on, 'focus must return to the re-rendered toggle of the same code');
+  assert(/Nhập 1 mã/.test(commit().textContent), 'picking one code must update the count');
+
+  commit().click();
+  await until(() => !sd.querySelector('.hq-review'), 'import must close the review');
+  const codes = (await h.v.byKind('preset')).map((r) => String(r.code).toUpperCase());
+  assert(codes.includes(HQ_NEW_B), 'the picked code must be imported');
+  assert(!codes.includes(HQ_NEW_A), 'an unpicked code must not be imported');
+  const mine = (await h.v.presets()).find((r) => String(r.code).toUpperCase() === HQ_HAVE);
+  assert(mine && mine.weapon === 'Bản của tôi' && mine.author === 'me', 'the saved preset must keep its own fields: ' + JSON.stringify(mine));
+  assert(String(mine.code) === HQ_HAVE.toLowerCase(), 'the saved preset must keep its original casing');
+});
+
+test('HQ review: a late reply after closing or leaving the tab is dropped', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  await until(() => sd.querySelector('.hq-review'), 'loading frame must open');
+  sd.querySelector('[data-act="hq-close"]').click();
+  assert(!sd.querySelector('.hq-review'), 'closing must remove the frame at once');
+  h.release();
+  await new Promise((r) => setTimeout(r, 30));
+  assert(!sd.querySelector('.hq-review'), 'a reply after close must not reopen the frame');
+
+  sd.querySelector('[data-act="hq-import"]').click();
+  await until(() => sd.querySelector('.hq-review'), 'second open must show the frame');
+  await h.p.go('history');
+  h.release();
+  await new Promise((r) => setTimeout(r, 30));
+  await h.p.go('presets');
+  assert(!sd.querySelector('.hq-review'), 'a reply after leaving the tab must not paint the review');
+});
+
+test('HQ review: a failed fetch shows the reason and a retry, without writing', async () => {
+  const h = await hqPanel({ ok: false, error: 'Không tải được mã HQ — Chiến Dịch Sinh Tồn: HTTP 503', items: [], prices: {}, failed: [] });
+  const sd = h.p._shadow;
+  const before = (await h.v.byKind('preset')).length;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  const err = await until(() => sd.querySelector('.hq-err'), 'a failed fetch must say why');
+  assert(err.getAttribute('role') === 'alert' && /HTTP 503/.test(err.textContent), 'the error must be announced with its reason');
+  assert(sd.querySelector('.hq-review [data-act="hq-import"]'), 'the error frame must offer a retry');
+  assert((await h.v.byKind('preset')).length === before, 'a failed fetch must not write anything');
+});
+
+test('HQ review: hosts without hqFetch show no HQ button', async () => {
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  const p = sandbox.__createPanel({ version: '3.3.0', target: 'test', vault: v, sync: {} });
+  await p.go('presets');
+  assert(!p._shadow.querySelector('[data-act="hq-import"]'), 'a host that cannot fetch HQ must not offer the button');
+});
+
 (async () => {
   for (const t of tests) {
     /* A test awaiting a promise that never settles let Node drain its event

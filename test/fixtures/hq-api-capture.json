@@ -1,0 +1,111 @@
+{
+  "_note": "Codes, modes, gun names and prices exactly as DfTools/ListGunCodeSchemes returned them on 2026-09-30 (logged-in session; Operations tab = sol, Warfare tab = mp; request page 1, price_min/price_max 0). Only data.total, data.items[].gun_code/gun_name/mode/price were recorded; the capture did not record whether price is a JSON number or string, so tests feed both. No request body, openid or token is stored.",
+  "responses": [
+    {
+      "code": 0,
+      "data": {
+        "total": 10,
+        "items": [
+          {
+            "mode": "sol",
+            "gun_code": "6JLGT7C02VAL71CR2QP7Q",
+            "gun_name": "AS Val Assault Rifle",
+            "price": 588375
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K0LJ3C08M7QO7G2236RN",
+            "gun_name": "MP7 Submachine Gun",
+            "price": 463154
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6JS43LS0717OFC531QD3F",
+            "gun_name": "KC17 Assault Rifle",
+            "price": 569950
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K0LJEC0FBHQI8TLHBKPF",
+            "gun_name": "M4A1 Assault Rifle",
+            "price": 415964
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K0BFI000PCLSC7KHDQMK",
+            "gun_name": "AS Val Assault Rifle",
+            "price": 741408
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6JPQ82S03RBMNS7FRL5H4",
+            "gun_name": "AR-57 Assault Rifle",
+            "price": 503352
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K026080ALC3I13QQ7AHC",
+            "gun_name": "M4A1 Assault Rifle",
+            "price": 389838
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K025Q80ALC3I13QQ7AHC",
+            "gun_name": "MP7 Submachine Gun",
+            "price": 442760
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6K03R1C04Q5HR1E25MVF2",
+            "gun_name": "KC17 Assault Rifle",
+            "price": 464507
+          },
+          {
+            "mode": "sol",
+            "gun_code": "6JVQNTS04Q5HR1E25MVF2",
+            "gun_name": "AR-57 Assault Rifle",
+            "price": 477066
+          }
+        ]
+      }
+    },
+    {
+      "code": 0,
+      "data": {
+        "total": 5,
+        "items": [
+          {
+            "mode": "mp",
+            "gun_code": "6K0M7VG08CJQ1634CQ2HM",
+            "gun_name": "AS Val Assault Rifle",
+            "price": -1
+          },
+          {
+            "mode": "mp",
+            "gun_code": "6K0LJ8G09KBQ2FP1D2KHQ",
+            "gun_name": "MP7 Submachine Gun",
+            "price": -1
+          },
+          {
+            "mode": "mp",
+            "gun_code": "6K0LLMC0FBHQI8TLHBKPF",
+            "gun_name": "KC17 Assault Rifle",
+            "price": -1
+          },
+          {
+            "mode": "mp",
+            "gun_code": "6JSATOS0CPOFVGO390QA8",
+            "gun_name": "M7 Battle Rifle",
+            "price": -1
+          },
+          {
+            "mode": "mp",
+            "gun_code": "6K0M6PS007V00VEAT8OQQ",
+            "gun_name": "AUG Assault Rifle",
+            "price": -1
+          }
+        ]
+      }
+    }
+  ]
+}

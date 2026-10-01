@@ -654,6 +654,199 @@ const DFRedeemSync = (function attachSync(root) {
     return api;
 }(typeof window !== 'undefined' ? window : globalThis));
 
+/* src/core/hq.js — recommended Gunsmith codes from the official HQ page.
+ *
+ * https://www.playdeltaforce.com/events/hq/vi/ ("Đề Xuất Chia Sẻ Mã") shows a
+ * curated list of builds. Reconnaissance of the live page found two sources:
+ *
+ *   1. Static, public, unauthenticated files the page itself loads:
+ *        gun-codes/op_sol_ga_vi.js  → window.gun_codes_op_sol_ga  (Operations)
+ *        gun-codes/op_mp_ga_vi.js   → window.gun_codes_op_mp_ga   (Warfare)
+ *      `_ga` is the Garena channel. Each is `var NAME = [ ...JSON... ];` with the
+ *      full list — the logged-in API returned exactly these codes (10 + 5), so
+ *      there is no second page to walk. The files send no CORS header, which is
+ *      why the extension's service worker fetches them, not the page.
+ *   2. The logged-in API (DfTools/ListGunCodeSchemes), which adds one thing the
+ *      static files lack: `price`, the Operations build cost. Calling it needs
+ *      the player's HQ openid/token. We never do; see tapHqPrices in build.js,
+ *      which only reads responses the HQ page already received.
+ *
+ * The "Kích Nổ" (detonation) tab has no gun codes at all: the page skips its
+ * gun-code sync for that tab, so there is nothing to import for it.
+ *
+ * Everything here is pure and DOM-free so the service worker, the panel and
+ * the tests share one implementation. Files are PARSED as JSON, never
+ * evaluated: they come from a third-party host and must not become code.
+ */
+(function attach(root) {
+  'use strict';
+
+  const HQ_PAGE_URL = 'https://www.playdeltaforce.com/events/hq/vi/';
+  const HQ_ORIGIN = 'https://www.playdeltaforce.com';
+  const OPERATIONS = 'Chiến Dịch Sinh Tồn';
+  const WARFARE = 'Chiến Trường Toàn Diện';
+  const SOURCES = Object.freeze([
+    Object.freeze({ hqMode: 'sol', mode: OPERATIONS, varName: 'gun_codes_op_sol_ga', url: `${HQ_ORIGIN}/gun-codes/op_sol_ga_vi.js` }),
+    Object.freeze({ hqMode: 'mp', mode: WARFARE, varName: 'gun_codes_op_mp_ga', url: `${HQ_ORIGIN}/gun-codes/op_mp_ga_vi.js` }),
+  ]);
+  const MODE_BY_HQ = Object.freeze({ sol: OPERATIONS, mp: WARFARE });
+  /* Gunsmith share codes in this list are 21 upper-case base32 characters. */
+  const CODE_RE = /^[A-Z0-9]{21}$/;
+  /* A few times the size of the real files (~40 KB); anything larger is not
+   * the file we expect and is refused before JSON.parse runs on it. */
+  const MAX_FILE_BYTES = 2 * 1024 * 1024;
+  const MAX_ITEMS = 500;
+  /* Same bounds as costs.js parseCost, repeated so the service worker, which
+   * does not load costs.js, applies them too. */
+  const MIN_PRICE = 100;
+  const MAX_PRICE = 9999999;
+
+  const text = (value) => (value == null ? '' : String(value)).trim();
+
+  /* `gun_code` is "<gun name>-<mode name>-<CODE>". Gun names contain hyphens
+   * ("AR-57 Assault Rifle"), so split from the right: the code is whatever
+   * follows the LAST hyphen. The API field is the bare code, which this also
+   * accepts. */
+  function extractCode(value) {
+    const raw = text(value).replace(/\s+/g, '');
+    const tail = raw.slice(raw.lastIndexOf('-') + 1).toUpperCase();
+    return CODE_RE.test(tail) ? tail : '';
+  }
+
+  /* `var gun_codes_op_sol_ga = [...];` → the array. Refuses anything that is
+   * not exactly one declaration of the expected name around a JSON array. */
+  function parseSchemeFile(source, expectedVar) {
+    const body = String(source == null ? '' : source);
+    if (body.length > MAX_FILE_BYTES) throw new Error('Tệp HQ quá lớn');
+    const head = /^\s*(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*/.exec(body);
+    if (!head) throw new Error('Tệp HQ không đúng định dạng');
+    if (expectedVar && head[1] !== expectedVar) throw new Error(`Tệp HQ đổi tên biến: ${head[1]}`);
+    const json = body.slice(head[0].length).replace(/;\s*$/, '');
+    let data;
+    try { data = JSON.parse(json); } catch (_) { throw new Error('Tệp HQ không phải JSON hợp lệ'); }
+    if (!Array.isArray(data)) throw new Error('Tệp HQ không phải danh sách');
+    return data;
+  }
+
+  /* Whitelist the fields the library shows. Author avatars, stats and the
+   * Gunsmith config blob are dropped: the library stores codes, not HQ's UI. */
+  function normalizeSchemes(groups, mode) {
+    const out = [];
+    const seen = new Set();
+    for (const group of Array.isArray(groups) ? groups : []) {
+      const weapon = text(group && group.gun_name);
+      for (const scheme of (group && Array.isArray(group.schemes) ? group.schemes : [])) {
+        const code = extractCode(scheme && scheme.gun_code);
+        if (!code || seen.has(code) || out.length >= MAX_ITEMS) continue;
+        seen.add(code);
+        out.push({
+          code,
+          weapon,
+          mode: text(mode),
+          title: text(scheme.name).slice(0, 120),
+          author: (Array.isArray(scheme.authors) ? scheme.authors : [])
+            .map((a) => text(a && a.name)).filter(Boolean).join(', ').slice(0, 80),
+          tags: (Array.isArray(scheme.tags) ? scheme.tags : [])
+            .map((t) => text(t && t.name)).filter(Boolean).slice(0, 8),
+          scheme_id: text(scheme.scheme_id),
+        });
+      }
+    }
+    return out;
+  }
+
+  /* Split HQ items into new and already-in-library. Matching is by code only
+   * and case-insensitive, so a library row is never duplicated or overwritten
+   * because HQ spelled a weapon differently. */
+  function planImport(libraryPresets, items) {
+    const have = new Set((Array.isArray(libraryPresets) ? libraryPresets : [])
+      .map((row) => text(row && row.code).toUpperCase()).filter(Boolean));
+    const fresh = [];
+    const known = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      (have.has(item.code) ? known : fresh).push(item);
+    }
+    return { fresh, known };
+  }
+
+  /* The vault row for an accepted item. Tagged `hq` so a user can find, and a
+   * later version can remove, everything that came from this source. */
+  function toPresetRow(item) {
+    return {
+      kind: 'preset',
+      code: item.code,
+      weapon: item.weapon,
+      mode: item.mode,
+      author: item.author,
+      source: 'hq',
+      notes: item.title,
+      tags: ['hq'].concat(item.tags || []),
+    };
+  }
+
+  function plausiblePrice(value) {
+    const price = Number(value);
+    return Number.isInteger(price) && price >= MIN_PRICE && price <= MAX_PRICE ? price : 0;
+  }
+
+  /* An API response body → { CODE: price }. The response is walked
+   * structurally rather than by one fixed path: any object that carries both a
+   * share code (`gun_code` or `code`) and a plausible `price` contributes. That
+   * keeps working if HQ nests the list differently, and it never needs the
+   * request, which is where the player's session lives. Warfare builds come
+   * back with price -1 (no purchase cost) and fail the range check, as does
+   * anything that is a parsing accident rather than a price. The body is
+   * untrusted: it crossed from a third-party page through two message hops. */
+  function sanitizePrices(body) {
+    const out = {};
+    let visited = 0;
+    const walk = (node, depth) => {
+      if (!node || typeof node !== 'object' || depth > 6 || visited > 5000) return;
+      visited += 1;
+      if (Array.isArray(node)) { for (const child of node.slice(0, MAX_ITEMS)) walk(child, depth + 1); return; }
+      const code = extractCode(node.gun_code) || extractCode(node.code);
+      const price = plausiblePrice(node.price);
+      if (code && price && Object.keys(out).length < MAX_ITEMS) out[code] = price;
+      for (const value of Object.values(node)) if (value && typeof value === 'object') walk(value, depth + 1);
+    };
+    walk(body, 0);
+    return out;
+  }
+
+  /* Fold freshly seen prices into the stored map, newest wins, capped so a
+   * long-lived install cannot grow it without bound. */
+  function mergePrices(stored, fresh, now) {
+    const at = text(now) || new Date().toISOString();
+    const next = {};
+    for (const [code, row] of Object.entries(stored || {})) {
+      if (CODE_RE.test(code) && row && Number(row.price) > 0) next[code] = { price: Number(row.price), seen_at: text(row.seen_at) };
+    }
+    for (const [code, price] of Object.entries(fresh || {})) next[code] = { price, seen_at: at };
+    const codes = Object.keys(next).sort((a, b) => String(next[b].seen_at).localeCompare(String(next[a].seen_at)));
+    const capped = {};
+    for (const code of codes.slice(0, MAX_ITEMS)) capped[code] = next[code];
+    return capped;
+  }
+
+  const api = {
+    HQ_PAGE_URL,
+    HQ_ORIGIN,
+    SOURCES,
+    MODE_BY_HQ,
+    CODE_RE,
+    MIN_PRICE,
+    MAX_PRICE,
+    extractCode,
+    parseSchemeFile,
+    normalizeSchemes,
+    planImport,
+    toPresetRow,
+    sanitizePrices,
+    mergePrices,
+  };
+  root.DFRedeemHQ = api;
+  }(typeof globalThis !== 'undefined' ? globalThis : this));
+
 const SETTINGS_KEY = DFRedeemSync.SETTINGS_KEY;
 /* Shared across every surface, unlike the per-origin IndexedDB vaults. */
 const HISTORY_KEY = 'df_redeem_history_mirror';
@@ -662,6 +855,80 @@ const HISTORY_CAP = 500;
  * allowed keys explicit stops the bridge from becoming a general storage API
  * that any page script could write settings through. */
 const PANEL_STATE_KEYS = { costsLocal: 'df_redeem_costs_local' };
+
+/* ── HQ recommended codes ───────────────────────────────────────────────── */
+/* Prices hq-capture.js read on the HQ page. Local only: they are shown next to
+ * a build and never reach the community vault. */
+const HQ_PRICES_KEY = 'df_redeem_hq_prices';
+const HQ_FETCH_TIMEOUT_MS = 20000;
+const HQ_PAGE_PREFIX = DFRedeemHQ.HQ_ORIGIN + '/events/hq/';
+
+async function fetchHqSource(source) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), HQ_FETCH_TIMEOUT_MS) : null;
+  try {
+    /* credentials: 'omit' keeps the player's playdeltaforce.com session
+     * cookies off the request; the files are public and need none. */
+    const res = await fetch(source.url, {
+      credentials: 'omit', cache: 'no-store', redirect: 'error', signal: ctrl ? ctrl.signal : undefined,
+    });
+    if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 0));
+    const groups = DFRedeemHQ.parseSchemeFile(await res.text(), source.varName);
+    return DFRedeemHQ.normalizeSchemes(groups, source.mode);
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error('quá thời gian chờ');
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function readHqPrices() {
+  const got = await chrome.storage.local.get(HQ_PRICES_KEY);
+  /* Re-validated on every read: storage outlives the code that wrote it. */
+  return DFRedeemHQ.mergePrices(got[HQ_PRICES_KEY] || {}, {}, '');
+}
+
+async function hqFetch() {
+  const settled = await Promise.all(DFRedeemHQ.SOURCES.map((source) => fetchHqSource(source).then(
+    (items) => ({ source, items }),
+    (error) => ({ source, error: String(error && error.message || error) }),
+  )));
+  const items = [];
+  const seen = new Set();
+  const failed = [];
+  for (const result of settled) {
+    if (result.error) { failed.push({ mode: result.source.mode, error: result.error }); continue; }
+    for (const item of result.items) {
+      if (seen.has(item.code)) continue;
+      seen.add(item.code);
+      items.push(item);
+    }
+  }
+  if (!items.length) {
+    const why = failed.map((f) => f.mode + ': ' + f.error).join('; ') || 'HQ không có mã nào';
+    return { ok: false, error: 'Không tải được mã HQ — ' + why, items: [], prices: {}, failed };
+  }
+  const stored = await readHqPrices();
+  const prices = {};
+  for (const item of items) if (stored[item.code]) prices[item.code] = stored[item.code].price;
+  return { ok: true, items, prices, failed };
+}
+
+/* Only hq-bridge.js on the HQ page may report prices. The redeem-page bridge
+ * relays any op its page asks for, so the sender URL is what tells them apart. */
+async function hqSavePrices(payload, sender) {
+  const from = sender && typeof sender.url === 'string' ? sender.url : '';
+  if (from.indexOf(HQ_PAGE_PREFIX) !== 0) return { ok: false, error: 'Nguồn giá HQ không hợp lệ.' };
+  const fresh = DFRedeemHQ.sanitizePrices(payload && payload.items);
+  const saved = Object.keys(fresh).length;
+  if (!saved) return { ok: true, saved: 0 };
+  const got = await chrome.storage.local.get(HQ_PRICES_KEY);
+  await chrome.storage.local.set({
+    [HQ_PRICES_KEY]: DFRedeemHQ.mergePrices(got[HQ_PRICES_KEY] || {}, fresh, new Date().toISOString()),
+  });
+  return { ok: true, saved };
+}
 
 function service() {
   return DFRedeemSync.createSyncService({ chromeApi: chrome, fetchFn: (...a) => fetch(...a) });
@@ -691,7 +958,11 @@ function toUi(settings) {
   };
 }
 
-async function handleSync(op, payload) {
+async function handleSync(op, payload, sender) {
+  /* HQ ops need neither sync settings nor the token, so they run before the
+   * settings read. */
+  if (op === 'hqFetch') return hqFetch();
+  if (op === 'hqPrices') return hqSavePrices(payload, sender);
   const svc = service();
   const stored = await svc.getLocal({ [SETTINGS_KEY]: DFRedeemSync.DEFAULT_SETTINGS });
   const current = { ...DFRedeemSync.DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] || {}) };
@@ -803,9 +1074,9 @@ async function handleSync(op, payload) {
   return { ok: false, error: 'Lệnh không hợp lệ: ' + op };
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   if (!msg || msg.type !== 'DF_REDEEM_SYNC') return false;
-  handleSync(msg.op, msg.payload)
+  handleSync(msg.op, msg.payload, sender)
     .then((result) => respond(result))
     .catch((error) => respond({ ok: false, error: String(error && error.message || error).replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]') }));
   return true; /* keep the channel open for the async reply */

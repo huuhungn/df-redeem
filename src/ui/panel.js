@@ -86,6 +86,12 @@ function createPanel(options) {
    * Only one card edits at a time: a grid of open inputs is how you get a user
    * typing a number into the wrong preset. */
   let costEdit = { code: null, value: '', error: '' };
+  /* The HQ review frame inside the Preset view; null while closed. Picks are
+   * held here rather than in checkbox DOM state, because the full-page app
+   * replays clicks onto this tree and a cloned checkbox cannot carry its own
+   * checked state back. `seq` drops a fetch that lands after a close. */
+  let hqReview = null;
+  let hqSeq = 0;
   let historyCode = null;
   let paletteOpen = false;
 
@@ -904,6 +910,212 @@ function createPanel(options) {
     };
   }
 
+  /* ── HQ recommended codes ─────────────────────────────────────────────── */
+  /* The official HQ page curates builds per mode. The worker fetches its public
+   * files and returns items already validated by core/hq.js; this view only
+   * reviews and imports them. Nothing is written until the user picks codes and
+   * confirms, and a code already in the library is shown as "đã có" and never
+   * overwritten, so HQ can never replace a build someone saved or verified.
+   *
+   * HQ's price is display-only. It is a snapshot that moves with the market and
+   * was measured by HQ, not by this community, so it never becomes preset.cost,
+   * never feeds costFor() and is never reported to the shared cost record. */
+  const HQ_CODE_RE = /^[A-Z0-9]{21}$/;
+  const hqText = (value, max) => String(value == null ? '' : value).trim().slice(0, max);
+
+  /* Re-checked here even though the worker already validated: the reply crossed
+   * a message hop, and the import writes into the vault. */
+  function hqItems(reply) {
+    const out = [];
+    const seen = new Set();
+    for (const raw of (reply && Array.isArray(reply.items) ? reply.items : [])) {
+      const code = hqText(raw && raw.code, 64).toUpperCase();
+      if (!HQ_CODE_RE.test(code) || seen.has(code)) continue;
+      seen.add(code);
+      out.push({
+        code,
+        weapon: hqText(raw.weapon, 80),
+        mode: hqText(raw.mode, 60),
+        title: hqText(raw.title, 120),
+        author: hqText(raw.author, 80),
+        tags: (Array.isArray(raw.tags) ? raw.tags : []).map((t) => hqText(t, 40)).filter(Boolean).slice(0, 8),
+      });
+    }
+    return out;
+  }
+
+  /* `{ CODE: price }` for display. Keys must be codes from this reply and
+   * values plausible integers; anything else is dropped, not shown. */
+  function hqPrices(reply, items) {
+    const raw = reply && reply.prices && typeof reply.prices === 'object' ? reply.prices : {};
+    const out = {};
+    for (const item of items) {
+      const price = Number(raw[item.code]);
+      if (Number.isInteger(price) && price > 0) out[item.code] = price;
+    }
+    return out;
+  }
+
+  /* Same row shape core/hq.js toPresetRow builds, kept local because hq.js is
+   * not bundled into the panel. Deliberately carries no `cost`. */
+  const hqPresetRow = (item) => ({
+    kind: 'preset',
+    code: item.code,
+    weapon: item.weapon,
+    mode: item.mode,
+    author: item.author,
+    source: 'hq',
+    notes: item.title,
+    tags: ['hq'].concat(item.tags || []),
+  });
+
+  /* The full-page app shows a clone of this view, refreshed only right after a
+   * click. The HQ fetch answers seconds later, so tell the host when the
+   * review repaints on its own. */
+  function hqPainted() {
+    if (typeof opts.onRepaint === 'function') {
+      try { opts.onRepaint('presets'); } catch (_) { /* a host hook must not break the view */ }
+    }
+  }
+
+  async function libraryPresetCodes() {
+    let rows = cache.presets;
+    if (vault) {
+      try { rows = await vault.byKind('preset'); } catch (_) { /* fall back to what the view already shows */ }
+    }
+    return new Set((rows || []).map((p) => String((p && p.code) || '').toUpperCase()).filter(Boolean));
+  }
+
+  async function openHqReview() {
+    if (!opts.sync || typeof opts.sync.hqFetch !== 'function') {
+      return toast('Bản này không tải được mã HQ — dùng extension.', 'warn');
+    }
+    const seq = ++hqSeq;
+    hqReview = { state: 'loading', items: [], known: new Set(), prices: {}, picked: new Set(), failed: [], error: '', saving: false };
+    renderPresets();
+    let reply;
+    try {
+      reply = await opts.sync.hqFetch();
+    } catch (error) {
+      reply = { ok: false, error: String((error && error.message) || error) };
+    }
+    if (seq !== hqSeq || !hqReview) return;
+    if (!reply || reply.ok === false) {
+      const why = (reply && reply.error) || 'Worker không trả lời.';
+      hqReview.state = 'error';
+      hqReview.error = isContextGone(why)
+        ? 'Extension vừa được tải lại hoặc cập nhật. Tải lại trang để kết nối lại.'
+        : why;
+    } else {
+      const items = hqItems(reply);
+      /* Match on the vault's own codes, case-insensitive, so a code saved in any
+       * spelling counts as present and is never written a second time. */
+      const have = await libraryPresetCodes();
+      if (seq !== hqSeq || !hqReview) return;
+      hqReview.state = 'ready';
+      hqReview.items = items;
+      hqReview.known = new Set(items.filter((i) => have.has(i.code)).map((i) => i.code));
+      hqReview.prices = hqPrices(reply, items);
+      hqReview.failed = Array.isArray(reply.failed) ? reply.failed : [];
+      /* Start with every new code picked: the list is short and curated, and
+       * the user unticks what they do not want before anything is saved. */
+      hqReview.picked = new Set(items.filter((i) => !hqReview.known.has(i.code)).map((i) => i.code));
+    }
+    if (view === 'presets') { renderPresets(); hqPainted(); }
+  }
+
+  async function importHqPicked() {
+    if (!hqReview || hqReview.state !== 'ready' || hqReview.saving) return;
+    const rows = hqReview.items.filter((i) => hqReview.picked.has(i.code) && !hqReview.known.has(i.code));
+    if (!rows.length) return toast('Chưa chọn mã mới nào.', 'warn');
+    if (!vault) return toast('Không mở được kho trên trang này.', 'err');
+    hqReview.saving = true;
+    renderPresets();
+    /* Re-read the library right before writing: another tab or a sync may have
+     * saved one of these codes since the review opened. */
+    const have = await libraryPresetCodes();
+    let added = 0;
+    let skipped = 0;
+    const failed = [];
+    for (const item of rows) {
+      if (have.has(item.code)) { skipped += 1; continue; }
+      try {
+        const res = await vault.upsert(hqPresetRow(item));
+        if (res && res.inserted) added += 1;
+      } catch (error) {
+        failed.push(item.code + ': ' + String((error && error.message) || error));
+      }
+    }
+    hqReview = null;
+    hqSeq += 1;
+    await refresh();
+    if (view === 'presets') { renderPresets(); hqPainted(); }
+    const tail = skipped ? `, bỏ qua ${skipped} mã vừa có trong kho` : '';
+    if (failed.length) toast(`Đã nhập ${added} mã HQ${tail}, ${failed.length} mã lỗi — ${failed[0]}`, 'warn');
+    else toast(`Đã nhập ${added} mã HQ vào kho preset${tail}.`, 'ok');
+  }
+
+  function renderHqReview() {
+    if (!hqReview) return '';
+    const r = hqReview;
+    const head = (extra) => `<div class="card-hd"><h3>Mã đề xuất từ HQ</h3>${extra}
+          <button class="act tiny ghost" data-act="hq-close" aria-label="Đóng khung duyệt mã HQ">Đóng</button></div>`;
+    if (r.state === 'loading') {
+      return `<section class="card hq-review" aria-busy="true">${head('')}
+        <p class="muted" role="status">Đang tải danh sách mã từ trang HQ…</p>
+      </section>`;
+    }
+    if (r.state === 'error') {
+      return `<section class="card hq-review">${head('')}
+        <p class="hq-err" role="alert">Không tải được mã HQ: ${esc(r.error)}</p>
+        <div class="btnrow"><button class="act tiny" data-act="hq-import">Thử lại</button></div>
+      </section>`;
+    }
+    const fresh = r.items.filter((i) => !r.known.has(i.code));
+    const pickedCount = fresh.filter((i) => r.picked.has(i.code)).length;
+    const groups = new Map();
+    for (const item of r.items) {
+      const mode = canonicalMode(item.mode);
+      if (!groups.has(mode)) groups.set(mode, []);
+      groups.get(mode).push(item);
+    }
+    const rowFor = (item) => {
+      const known = r.known.has(item.code);
+      const on = !known && r.picked.has(item.code);
+      const price = r.prices[item.code];
+      return `<li class="hq-row${known ? ' hq-known' : ''}${on ? ' on' : ''}">
+          ${known
+            ? '<span class="tag" title="Mã này đã có trong kho, sẽ không bị ghi đè">đã có</span>'
+            : `<button class="chip hq-pick${on ? ' on' : ''}" data-act="hq-toggle" data-code="${esc(item.code)}"
+                aria-pressed="${on ? 'true' : 'false'}" aria-label="${on ? 'Bỏ chọn' : 'Chọn'} mã HQ ${esc(item.code)}">${on ? '✓ Chọn' : 'Chọn'}</button>`}
+          <div class="hq-main">
+            <b>${esc(item.weapon || '—')}</b>${item.title ? ` <span class="muted">${esc(item.title)}</span>` : ''}
+            <code class="mono hq-code">${esc(item.code)}</code>
+            <span class="muted hq-sub">${item.author ? 'của ' + esc(item.author) : ''}${price
+              ? `${item.author ? ' · ' : ''}<span class="hq-price" title="Giá HQ hiển thị để tham khảo, không dùng làm chi phí trang bị">Giá HQ ≈ ${esc(Costs.formatCost(price))}</span>`
+              : ''}</span>
+          </div>
+        </li>`;
+    };
+    const partial = r.failed.length
+      ? `<p class="muted hq-note" role="status">Thiếu nguồn: ${r.failed.map((f) => esc(canonicalMode(f && f.mode)) + ' (' + esc(f && f.error) + ')').join(', ')}.</p>`
+      : '';
+    return `<section class="card hq-review">${head(`<span class="muted">${fresh.length} mới · ${r.known.size} đã có</span>`)}
+        <p class="muted hq-note">Tick mã muốn nhập rồi bấm Nhập. Mã đã có trong kho không bị ghi đè. Giá HQ chỉ để xem, không dùng làm chi phí trang bị.</p>
+        ${partial}
+        ${r.items.length ? [...groups.entries()].map(([mode, items]) => `<div class="hq-group">
+          <div class="hq-group-hd">${esc(mode)} <span class="muted">${items.length} mã</span></div>
+          <ul class="hq-list">${items.map(rowFor).join('')}</ul>
+        </div>`).join('') : '<p class="muted">HQ chưa có mã nào.</p>'}
+        <div class="btnrow hq-actions">
+          ${fresh.length ? `<button class="act tiny ghost" data-act="hq-pick-all">Chọn hết mã mới</button>
+          <button class="act tiny ghost" data-act="hq-pick-none">Bỏ chọn hết</button>` : ''}
+          <span class="spacer"></span>
+          <button class="act tiny primary" data-act="hq-commit"${pickedCount && !r.saving ? '' : ' disabled'}>${r.saving ? 'Đang nhập…' : `Nhập ${pickedCount} mã đã chọn`}</button>
+        </div>
+      </section>`;
+  }
+
   function renderPresets() {
     /* Resolve once, then filter: every row needs its class for both the chip
      * counts and the grouping, so classifying inside the loop would repeat the
@@ -956,7 +1168,13 @@ function createPanel(options) {
       <div class="filters two">
         <input class="pq" placeholder="Tìm mã, tên súng, chế độ…" value="${esc(presetFilter.q)}" aria-label="Tìm preset">
         ${presetFilter.q || presetFilter.cls !== 'all' ? '<button class="act tiny ghost" data-act="pclear">Xoá lọc</button>' : ''}
+        ${opts.sync && typeof opts.sync.hqFetch === 'function'
+          ? `<button class="act tiny hq-open" data-act="hq-import" aria-expanded="${hqReview ? 'true' : 'false'}"
+              title="Xem mã đề xuất trên trang HQ chính thức rồi chọn mã muốn nhập"${hqReview && hqReview.state === 'loading' ? ' disabled' : ''}>Nhập từ HQ</button>`
+          : ''}
       </div>
+
+      ${renderHqReview()}
 
       <div class="chiprow" role="group" aria-label="Lọc theo loại súng">${chips}</div>
 
@@ -1153,6 +1371,9 @@ function createPanel(options) {
      * after — refresh() reads the vault and a slow read would otherwise leave
      * the outgoing view sitting at the old offset until it resolves. */
     viewHost.scrollTop = 0;
+    /* The HQ review belongs to the Preset view; leaving it drops the frame and
+     * any fetch still in flight, so a late reply cannot paint over another tab. */
+    if (name !== 'presets' && hqReview) { hqReview = null; hqSeq += 1; }
     const seq = ++navSeq;
     await refresh();
     /* Two quick switches can resolve out of order; only the latest may paint,
@@ -1360,6 +1581,31 @@ function createPanel(options) {
       return renderPresets();
     }
     if (act === 'pclear') { presetFilter = { cls: 'all', q: '' }; return renderPresets(); }
+    /* HQ review — picks live in hqReview, never in checkbox DOM state */
+    if (act === 'hq-import') return openHqReview();
+    if (act === 'hq-close') { hqReview = null; hqSeq += 1; return renderPresets(); }
+    if (act === 'hq-toggle') {
+      const code = btn.dataset.code;
+      if (!hqReview || hqReview.state !== 'ready' || hqReview.saving || !code || hqReview.known.has(code)) return undefined;
+      if (hqReview.picked.has(code)) hqReview.picked.delete(code); else hqReview.picked.add(code);
+      renderPresets();
+      /* The repaint replaces the button; put focus back on its replacement so
+       * a keyboard user can keep walking the list with Tab/Space. */
+      const again = $(`[data-act="hq-toggle"][data-code="${code}"]`);
+      if (again) again.focus();
+      return undefined;
+    }
+    if (act === 'hq-pick-all' || act === 'hq-pick-none') {
+      if (!hqReview || hqReview.state !== 'ready' || hqReview.saving) return undefined;
+      hqReview.picked = act === 'hq-pick-all'
+        ? new Set(hqReview.items.filter((i) => !hqReview.known.has(i.code)).map((i) => i.code))
+        : new Set();
+      renderPresets();
+      const again = $(`[data-act="${act}"]`);
+      if (again) again.focus();
+      return undefined;
+    }
+    if (act === 'hq-commit') return importHqPicked();
     /* cost editing — one card at a time, see costEdit */
     if (act === 'cost-edit') {
       const code = btn.dataset.code;
