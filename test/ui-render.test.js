@@ -1365,6 +1365,34 @@ test('HQ review: hosts without hqFetch show no HQ button', async () => {
   assert(!p._shadow.querySelector('[data-act="hq-import"]'), 'a host that cannot fetch HQ must not offer the button');
 });
 
+/* Earlier tests leave a class chip or query applied on the shared panel. */
+async function showAllPresets() {
+  await panel.go('presets');
+  const clear = panel._shadow.querySelector('[data-act="pclear"]');
+  if (clear) { clear.click(); await new Promise((r) => setTimeout(r, 10)); }
+}
+
+/* Toasts were created without the .in class that sets opacity:1, so every
+ * confirmation ("Đã copy", import results, errors) rendered fully transparent.
+ * On app.html the drawer host is display:none as well, so the page passes its
+ * own light-DOM #toasts in opts.toastHost. */
+test('toasts become visible and honour a host-supplied toast container', async () => {
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  await v.seedOnFirstRun(sandbox.__SEED);
+  const host = sandbox.document.createElement('div');
+  const p = sandbox.__createPanel({ version: '3.3.2', target: 'test', vault: v, toastHost: host });
+  await p.go('presets');
+  p._shadow.querySelector('.pcard [data-act="row-copy"]').click();
+  const t = await until(() => host.querySelector('.toast.in'), 'a toast must gain .in so it is not left at opacity 0');
+  assert(/copy/i.test(t.textContent), 'the copy confirmation must land in the supplied host');
+  assert(!p._shadow.querySelector('.toast'), 'with a host supplied, toasts must not also render in the hidden shadow root');
+
+  await showAllPresets();
+  panel._shadow.querySelector('.pcard [data-act="row-copy"]').click();
+  await until(() => panel._shadow.querySelector('.toast-wrap .toast.in'), 'without a host the drawer toast must still become visible');
+});
+
 (async () => {
   for (const t of tests) {
     /* A test awaiting a promise that never settles let Node drain its event

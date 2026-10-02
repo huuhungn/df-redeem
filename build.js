@@ -570,7 +570,7 @@ const appHtml = `<!doctype html>
       <div id="page-view"></div>
     </main>
   </div>
-  <div class="toast-wrap" id="toasts"></div>
+  <div class="toast-wrap" id="toasts" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
 </body>
 </html>
@@ -679,6 +679,9 @@ ${UI}
   };
   const panel = createPanel({
     version: '${VERSION}', target: 'page', surface: 'page', sync,
+    /* The drawer shell is mounted display:none below, which hides its shadow
+     * toast stack too. Copy/save feedback must land in this page instead. */
+    toastHost: document.getElementById('toasts'),
     /* The view below is a clone, refreshed right after each click. The HQ
      * review repaints seconds later when the fetch or the import finishes, so
      * the panel calls back and the visible clone is replaced then. */

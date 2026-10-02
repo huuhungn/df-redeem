@@ -3227,12 +3227,23 @@ function createPanel(options) {
     } catch (_) { /* unreadable store: start empty */ }
   }
 
+  /* .toast starts at opacity 0 and only .in makes it visible, so a toast that
+   * never gets .in is announced to screen readers but invisible on screen.
+   * Adding it a frame after insertion lets the fade-in transition run. A host
+   * page that hides this shadow root (app.html mounts it display:none) passes
+   * its own light-DOM container as opts.toastHost. */
+  const toastHost = opts.toastHost || toasts;
+  const nextFrame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame
+    : (fn) => setTimeout(fn, 16);
   function toast(msg, tone) {
     const t = document.createElement('div');
     t.className = 'toast' + (tone ? ' ' + tone : '');
     t.textContent = msg;
-    toasts.appendChild(t);
-    setTimeout(() => { try { toasts.removeChild(t); } catch (_) {} }, 4200);
+    toastHost.appendChild(t);
+    nextFrame(() => t.classList.add('in'));
+    setTimeout(() => t.classList.remove('in'), 3900);
+    setTimeout(() => { try { toastHost.removeChild(t); } catch (_) {} }, 4200);
   }
 
   /* ── data ──────────────────────────────────────────────────────────────── */
@@ -4814,6 +4825,9 @@ function createPanel(options) {
   };
   const panel = createPanel({
     version: '3.3.2', target: 'page', surface: 'page', sync,
+    /* The drawer shell is mounted display:none below, which hides its shadow
+     * toast stack too. Copy/save feedback must land in this page instead. */
+    toastHost: document.getElementById('toasts'),
     /* The view below is a clone, refreshed right after each click. The HQ
      * review repaints seconds later when the fetch or the import finishes, so
      * the panel calls back and the visible clone is replaced then. */
