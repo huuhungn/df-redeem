@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.3.0
- * Built v3.3.0 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.1
+ * Built v3.3.1 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4790,9 +4790,9 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.3.0', target: 'console', sync });
+  const panel = createPanel({ version: '3.3.1', target: 'console', sync });
   window.__dfRedeemPanel = panel;
   panel.open();
-  console.log('%c[DF Redeem v3.3.0]%c bảng điều khiển đã mở. Dán danh sách code vào ô, bấm Bắt đầu.',
+  console.log('%c[DF Redeem v3.3.1]%c bảng điều khiển đã mở. Dán danh sách code vào ô, bấm Bắt đầu.',
     'background:#10f79a;color:#03110d;font-weight:700;padding:2px 7px;border-radius:3px', '');
 }());
