@@ -435,6 +435,49 @@ test('page-surface filter replay targets the clicked chip instead of the first c
     'page clone must preserve data-k when replaying a filter click');
 });
 
+/* app.html replays every tick and keystroke from its cloned view onto the
+ * drawer original. Pairing by class alone sent a tick on any Library row to
+ * row 1 (every row checkbox is .pick), and blindly restoring the caret threw
+ * InvalidStateError on checkbox and number inputs. Run the shipped pairing
+ * helpers against a rendered Library page. */
+test('page-surface control replay pairs a row checkbox with its own row', async () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'extension', 'app.js'), 'utf8');
+  const grab = (name) => {
+    const start = app.indexOf(name);
+    assert(start >= 0, `app.js is missing ${name}`);
+    let depth = 0;
+    for (let i = app.indexOf('{', start); i < app.length; i++) {
+      if (app[i] === '{') depth += 1;
+      if (app[i] === '}' && --depth === 0) return app.slice(start, i + 1);
+    }
+    throw new Error('unbalanced ' + name);
+  };
+  const helpers = new Function(`
+    const firstClass = (el) => String((el && el.className) || '').trim().split(' ')[0];
+    ${grab('function controlKey(el)')}
+    ${grab('function findControl(root, key)')}
+    return { controlKey, findControl };`)();
+
+  await panel.go('library');
+  const view = panel._shadow.querySelector('.view-host');
+  const boxes = view.querySelectorAll('tbody tr .pick');
+  assert(boxes.length >= 3, `need several Library rows, got ${boxes.length}`);
+  const third = boxes[2];
+  const key = helpers.controlKey(third);
+  assert(key.cls === 'pick', `row checkbox key class is ${key.cls}`);
+  assert(key.code === third.closest('[data-code]').dataset.code, `row checkbox key code is ${key.code}`);
+  assert(helpers.findControl(view, key) === third, 'a row tick must land on the same row');
+
+  /* Controls outside a row still resolve by class, and a class that is not a
+   * plain identifier never reaches querySelector. */
+  const search = view.querySelector('.fq');
+  assert(search && helpers.findControl(view, helpers.controlKey(search)) === search, 'the search box must resolve to itself');
+  assert(helpers.findControl(view, { cls: 'pick"]', code: null }) === null, 'a non-identifier class must not reach querySelector');
+
+  assert(!/back\.setSelectionRange/.test(app), 'the old unguarded caret restore is back');
+  assert(!/'checked' in twin/.test(app), 'change replay must not copy value onto a checkbox twin');
+});
+
 test('equipment cost renders with its agreement state and an edit affordance', async () => {
   await panel.go('presets');
   const sd = panel._shadow;

@@ -146,6 +146,148 @@ function errorSink(cx) {
     pass(name, detail + ' → ' + file);
   }
 
+  /* ── form controls: the view on app.html is a clone of the drawer's render,
+   * and every tick or keystroke is replayed onto the drawer original. Drive it
+   * with trusted input, because the failures live in what Chrome does on its
+   * own: a checkbox fires input and change, removing a focused dirty field fires
+   * change, and setSelectionRange throws on checkbox and number inputs. ─── */
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const shadowJs = '[...document.documentElement.children].map((n) => n.shadowRoot).find(Boolean)';
+  const openView = async (view, readyJs) => {
+    await app.evaluate(`document.querySelector('.side-nav [data-view="${view}"]').click()`);
+    for (let i = 0; i < 40 && !(await app.evaluate(readyJs)); i++) await sleep(250);
+    await sleep(300);
+  };
+  const press = async (selector) => {
+    const at = await app.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      el.scrollIntoView({ block: 'center' });
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`);
+    if (!at) return false;
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await app.send('Input.dispatchMouseEvent', { type, x: at.x, y: at.y, button: 'left', clickCount: 1 });
+    }
+    await sleep(350);
+    return true;
+  };
+  /* One key at a time with a human gap: the focus loss only shows from the
+   * second keystroke on, so pasting the whole string would hide it. */
+  const typeKeys = async (text) => {
+    for (const ch of text) {
+      await app.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch, unmodifiedText: ch });
+      await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch });
+      await sleep(120);
+    }
+    await sleep(300);
+  };
+  const key = async (name, code) => {
+    await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: name, code: name, windowsVirtualKeyCode: code });
+    await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code: name, windowsVirtualKeyCode: code });
+    await sleep(150);
+  };
+  const focusedClass = () => app.evaluate('(document.activeElement && document.activeElement.className) || ""');
+
+  {
+    const name = 'app ticks the Library row that was clicked';
+    await openView('library', 'document.querySelectorAll("#page-view tbody tr").length > 3');
+    appErrors();
+    const codes = await app.evaluate('[...document.querySelectorAll("#page-view tbody tr")].map((tr) => tr.dataset.code)');
+    await press('#page-view tbody tr:nth-child(3) .pick');
+    const picked = await app.evaluate(`({
+      page: [...document.querySelectorAll('#page-view tbody tr')].filter((tr) => tr.querySelector('.pick').checked).map((tr) => tr.dataset.code),
+      drawer: [...${shadowJs}.querySelectorAll('.view-host tbody tr')].filter((tr) => tr.querySelector('.pick').checked).map((tr) => tr.dataset.code),
+      focused: (document.activeElement && document.activeElement.className) || '',
+    })`);
+    const errs = appErrors();
+    if (errs.length) fail(name, 'console: ' + errs.join(' | '));
+    else if (picked.page.join() !== codes[2] || picked.drawer.join() !== codes[2]) {
+      fail(name, `clicked ${codes[2]}, page ticked [${picked.page}], drawer ticked [${picked.drawer}]`);
+    } else if (picked.focused !== 'pick') fail(name, 'focus left the checkbox for "' + picked.focused + '"');
+    else pass(name, codes[2]);
+    await press('#page-view tbody tr:nth-child(3) .pick');
+  }
+
+  {
+    const name = 'app Library search keeps focus while typing';
+    await press('#page-view .fq');
+    appErrors();
+    await typeKeys('85ew');
+    const got = await app.evaluate(`({
+      value: document.querySelector('#page-view .fq').value,
+      rows: [...document.querySelectorAll('#page-view tbody tr')].map((tr) => tr.dataset.code),
+    })`);
+    const focused = await focusedClass();
+    const errs = appErrors();
+    if (errs.length) fail(name, 'console: ' + errs.join(' | '));
+    else if (got.value !== '85ew' || focused !== 'fq') fail(name, `typed "85ew", field holds "${got.value}", focus on "${focused}"`);
+    else if (!got.rows.length || got.rows.some((c) => !/85ew/i.test(c))) fail(name, 'filter shows ' + got.rows.join(', '));
+    else pass(name, got.rows.length + ' matching row(s)');
+    await app.evaluate('document.querySelector("#page-view .fq").select()');
+    await key('Backspace', 8);
+  }
+
+  {
+    const name = 'app Run fields take typing and toggles without errors';
+    await openView('run', '!!document.querySelector("#page-view .pace")');
+    appErrors();
+    const queueBefore = await app.evaluate('document.querySelector("#page-view .queue").value');
+    const problems = [];
+
+    await press('#page-view .pace');
+    await app.evaluate('document.querySelector("#page-view .pace").select()');
+    await typeKeys('1500');
+    const pace = await app.evaluate(`[document.querySelector('#page-view .pace').value, ${shadowJs}.querySelector('.view-host .pace').value]`);
+    if (pace[0] !== '1500' || pace[1] !== '1500') problems.push(`pace page "${pace[0]}" drawer "${pace[1]}"`);
+    if ((await focusedClass()) !== 'pace') problems.push('pace lost focus');
+
+    const was = await app.evaluate(`${shadowJs}.querySelector('.view-host .variants').checked`);
+    await press('#page-view .variants');
+    const now = await app.evaluate(`[document.querySelector('#page-view .variants').checked, ${shadowJs}.querySelector('.view-host .variants').checked]`);
+    if (now[0] === was || now[1] === was) problems.push('variants toggle did not reach the drawer');
+    await press('#page-view .variants');
+
+    /* The caret must come back where it was, not jump to the end: type, step
+     * left, type again. Only on an empty queue, so a real one is never touched. */
+    if (!queueBefore) {
+      await press('#page-view .queue');
+      await typeKeys('AB');
+      await key('ArrowLeft', 37);
+      await typeKeys('C');
+      const queue = await app.evaluate('document.querySelector("#page-view .queue").value');
+      if (queue !== 'ACB') problems.push(`queue caret: typed A,B,←,C and got "${queue}"`);
+      await app.evaluate('document.querySelector("#page-view .queue").select()');
+      await key('Backspace', 8);
+    }
+
+    const errs = appErrors();
+    if (errs.length) problems.push('console: ' + errs.join(' | '));
+    if (problems.length) fail(name, problems.join(' · '));
+    else pass(name, queueBefore ? 'pace + variants (queue not empty, caret check skipped)' : 'pace + variants + queue caret');
+    await press('#page-view .pace');
+    await app.evaluate('document.querySelector("#page-view .pace").select()');
+    await typeKeys('1200');
+  }
+
+  {
+    const name = 'app Preset search keeps focus while typing';
+    await openView('presets', '!!document.querySelector("#page-view .pq")');
+    await press('#page-view .pq');
+    appErrors();
+    await typeKeys('mk4');
+    const got = await app.evaluate('[document.querySelector("#page-view .pq").value, document.querySelectorAll("#page-view .pcard").length]');
+    const focused = await focusedClass();
+    const errs = appErrors();
+    if (errs.length) fail(name, 'console: ' + errs.join(' | '));
+    else if (got[0] !== 'mk4' || focused !== 'pq') fail(name, `typed "mk4", field holds "${got[0]}", focus on "${focused}"`);
+    else if (!got[1] || got[1] >= SEED_PRESETS) fail(name, `filter left ${got[1]} of ${SEED_PRESETS} cards`);
+    else pass(name, got[1] + ' card(s)');
+    await app.evaluate('document.querySelector("#page-view .pq").select()');
+    await key('Backspace', 8);
+  }
+
   /* ── contrast: no control may render with the browser's default chrome ───
    * An unstyled button on this dark theme comes out near-white with near-white
    * text — invisible, and easy to miss in a screenshot review. Chrome's default

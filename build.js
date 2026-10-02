@@ -690,11 +690,58 @@ ${UI}
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
 
+  /* Every form control below is a clone; its drawer original is what the panel
+   * reads. Pair them by first class plus the code of the row the control sits
+   * in. Class alone is not an identity: every Library row checkbox is .pick, so
+   * a class-only lookup replayed a tick on row 3 onto row 1 and the bulk
+   * actions then queued a code the user never picked. */
+  const firstClass = (el) => String((el && el.className) || '').trim().split(' ')[0];
+  function controlKey(el) {
+    const row = el.closest('[data-code]');
+    return { cls: firstClass(el), code: row ? row.dataset.code : null };
+  }
+  function findControl(root, key) {
+    if (!root || !key || !/^[a-z][a-z0-9-]*$/i.test(key.cls)) return null;
+    const all = root.querySelectorAll('.' + key.cls);
+    for (let i = 0; i < all.length; i++) {
+      const row = all[i].closest('[data-code]');
+      if ((row ? row.dataset.code : null) === key.code) return all[i];
+    }
+    return null;
+  }
+  const drawerView = () => panel._shadow.querySelector('.view-host');
+
+  /* Fields that hold a caret. A checkbox or a select has none to lose. */
+  const holdsCaret = (el) => el.tagName === 'TEXTAREA'
+    || (el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|file|image|range|color)$/.test(el.type));
+
+  /* A repaint swaps the whole view for a fresh copy of the drawer's render. The
+   * field under the user's caret is carried across as the same node instead of
+   * a copy: Chrome keeps a text control's own caret, selection and IME state on
+   * the element and restores them on focus(), which no copy can reproduce. A
+   * script cannot even place the caret in a number input, where
+   * setSelectionRange throws, so a fresh copy there typed every digit at the
+   * front. Any other focused control gets focus on its copy. */
   function recloneView() {
     const rendered = panel._shadow.querySelector('.view-host .pad');
     if (!rendered) return;
+    const fresh = rendered.cloneNode(true);
+    const active = document.activeElement;
+    const key = active && active !== document.body && host.contains(active) ? controlKey(active) : null;
+    if (key && holdsCaret(active)) {
+      const spot = findControl(fresh, key);
+      if (spot) spot.replaceWith(active);
+    }
     host.innerHTML = '';
-    host.appendChild(rendered.cloneNode(true));
+    host.appendChild(fresh);
+    const back = key && findControl(host, key);
+    if (back && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  }
+  /* Keystrokes inside the delay coalesce into one repaint. */
+  let repaintTimer = 0;
+  function scheduleReclone() {
+    clearTimeout(repaintTimer);
+    repaintTimer = setTimeout(recloneView, 20);
   }
 
   nav.innerHTML = VIEWS.map((v) =>
@@ -750,35 +797,36 @@ ${UI}
       }), 30);
     }
   });
-  host.addEventListener('input', (e) => {
-    const cls = e.target.className;
-    const twin = panel._shadow.querySelector('.' + String(cls).split(' ')[0]);
-    if (twin && 'value' in twin) {
-      twin.value = e.target.value;
-      twin.dispatchEvent(new Event('input', { bubbles: true }));
-      const active = document.querySelector('.side-nav .on').dataset.view;
-      setTimeout(() => {
-        const rendered = panel._shadow.querySelector('.view-host .pad');
-        if (!rendered) return;
-        const sel = document.activeElement && document.activeElement.className;
-        host.innerHTML = '';
-        host.appendChild(rendered.cloneNode(true));
-        if (sel) { const back = host.querySelector('.' + String(sel).split(' ')[0]); if (back && back.focus) { back.focus(); if (back.setSelectionRange && back.value) back.setSelectionRange(back.value.length, back.value.length); } }
-      }, 20);
-    }
-  });
+  /* Typing is copied onto the drawer original, whose handlers re-render the
+   * view, and the clone is refreshed from that render. Checkboxes and selects
+   * fire input too, but they are replayed once, on change, below. A field in
+   * the middle of an IME composition is left alone until the composition ends,
+   * so a repaint cannot cut a syllable in half. */
+  function replayInput(target) {
+    if (!target || target.type === 'checkbox' || target.type === 'radio' || target.tagName === 'SELECT') return;
+    const twin = findControl(drawerView(), controlKey(target));
+    if (!twin || !('value' in twin)) return;
+    twin.value = target.value;
+    twin.dispatchEvent(new Event('input', { bubbles: true }));
+    scheduleReclone();
+  }
+  host.addEventListener('input', (e) => { if (!e.isComposing) replayInput(e.target); });
+  host.addEventListener('compositionend', (e) => replayInput(e.target));
+  /* change is how a checkbox toggles and a select picks. Text fields fire it as
+   * well, on blur, and a repaint that removes the focused field counts as a
+   * blur. Their value already went across on input; replaying it again
+   * repainted a second time without restoring focus, so typing stopped after
+   * the first character. */
   host.addEventListener('change', (e) => {
-    const cls = String(e.target.className).split(' ')[0];
-    const twin = panel._shadow.querySelector('.' + cls);
-    if (twin) {
-      if ('checked' in twin) twin.checked = e.target.checked;
-      if ('value' in twin) twin.value = e.target.value;
-      twin.dispatchEvent(new Event('change', { bubbles: true }));
-      setTimeout(() => {
-        const rendered = panel._shadow.querySelector('.view-host .pad');
-        if (rendered) { host.innerHTML = ''; host.appendChild(rendered.cloneNode(true)); }
-      }, 20);
-    }
+    const t = e.target;
+    const toggles = t.type === 'checkbox' || t.type === 'radio';
+    if (!toggles && t.tagName !== 'SELECT') return;
+    const twin = findControl(drawerView(), controlKey(t));
+    if (!twin) return;
+    if (toggles) twin.checked = t.checked;
+    else twin.value = t.value;
+    twin.dispatchEvent(new Event('change', { bubbles: true }));
+    scheduleReclone();
   });
 
   nav.addEventListener('click', (e) => {
