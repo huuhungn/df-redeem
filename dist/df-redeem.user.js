@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Delta Force Auto Redeem (verified)
 // @namespace    local.df-redeem
-// @version      3.3.1
+// @version      3.3.2
 // @description  Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật, xuất CSV/JSON. Không gửi dữ liệu ra ngoài.
 // @author       local
 // @match        https://redeem.df.garena.sg/*
@@ -11,8 +11,8 @@
 // @grant        GM_deleteValue
 // @noframes
 // ==/UserScript==
-/* Delta Force Auto Redeem v3.3.1
- * Built v3.3.1 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.2
+ * Built v3.3.2 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4804,7 +4804,7 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.3.1', target: 'userscript', store, sync });
+  const panel = createPanel({ version: '3.3.2', target: 'userscript', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
 }());

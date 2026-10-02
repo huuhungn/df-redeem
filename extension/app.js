@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.3.1
- * Built v3.3.1 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.2
+ * Built v3.3.2 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4813,7 +4813,7 @@ function createPanel(options) {
     hqFetch: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqFetch' }),
   };
   const panel = createPanel({
-    version: '3.3.1', target: 'page', surface: 'page', sync,
+    version: '3.3.2', target: 'page', surface: 'page', sync,
     /* The view below is a clone, refreshed right after each click. The HQ
      * review repaints seconds later when the fetch or the import finishes, so
      * the panel calls back and the visible clone is replaced then. */
