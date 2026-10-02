@@ -1393,6 +1393,28 @@ test('toasts become visible and honour a host-supplied toast container', async (
   await until(() => panel._shadow.querySelector('.toast-wrap .toast.in'), 'without a host the drawer toast must still become visible');
 });
 
+/* Every card sits under its class heading, so the English class suffix on the
+ * name ("AKM Assault Rifle") repeated the heading. The mode decides whether the
+ * build costs anything, so it is tinted, and Copy shares its row. */
+test('preset cards: short weapon name, tinted mode chip, Copy beside the mode', async () => {
+  await showAllPresets();
+  const cards = panel._shadow.querySelectorAll('.pcard');
+  assert(cards.length > 0, 'presets view must render cards');
+  let shortened = 0;
+  cards.forEach((card) => {
+    const name = card.querySelector('.pc-hd b').textContent.trim();
+    const label = card.querySelector('.pc-mode');
+    assert(label.classList.contains('m-ops') || label.classList.contains('m-war'), `mode chip "${label.textContent}" has no tone`);
+    assert(/Sinh Tồn/.test(label.textContent) === label.classList.contains('m-ops'), 'Chiến Dịch must be the m-ops tone');
+    assert(card.querySelector('.pc-act .pc-ft [data-act="row-copy"]'), 'Copy must sit in the action row beside the mode');
+    assert(card.querySelectorAll('[data-act="row-copy"]').length === 1, 'each card has exactly one Copy');
+    assert(!/(Assault Rifle|Submachine Gun|Marksman Rifle|Battle Rifle|Shotgun|Sniper Rifle|Light Machine Gun)$/.test(name),
+      `"${name}" still repeats its class heading`);
+    if (card.querySelector('.pc-hd b').getAttribute('title')) shortened += 1;
+  });
+  assert(shortened > 0, 'shortened names must keep the full catalogue name as a tooltip');
+});
+
 (async () => {
   for (const t of tests) {
     /* A test awaiting a promise that never settles let Node drain its event

@@ -878,6 +878,24 @@ function createPanel(options) {
     ? Weapons.classifyPreset(p)
     : { cls: 'unknown', clsLabel: 'Chưa rõ loại súng', weapon: String((p && (p.weapon || p.gun)) || '—'), raw: '' });
 
+  /* Catalogue names carry the class in English ("AKM Assault Rifle"), and every
+   * card already sits under its class heading, so the suffix repeated the
+   * heading on every card and pushed the code below the fold on narrow
+   * screens. Show the model only; the full name stays in the tooltip and in
+   * search (which matches meta.weapon, not this display string). */
+  const shortWeapon = (meta) => {
+    const name = String((meta && meta.weapon) || '');
+    const en = meta && meta.clsEn;
+    if (!en || !name.endsWith(' ' + en)) return name;
+    return name.slice(0, -(en.length + 1)) || name;
+  };
+
+  /* Two modes, two very different meanings for the same code: Operations
+   * builds cost money, Warfare loadouts are free. Colour the chip so the mode
+   * reads at a glance instead of after reading two lines of Vietnamese. */
+  const MODE_TONE = { 'Chiến Dịch Sinh Tồn': 'm-ops', 'Chiến Trường Toàn Diện': 'm-war' };
+  const modeTone = (mode) => MODE_TONE[canonicalMode(mode)] || 'm-other';
+
   /* Same defensive lookup as Weapons: a missing costs module must degrade to
    * "no cost shown", never break the whole preset view. */
   const Costs = (typeof root !== 'undefined' && root.DFRedeemCosts)
@@ -1199,7 +1217,7 @@ function createPanel(options) {
         <p>Gunsmith → Loadout → nút kính lúp → dán mã. Linh kiện chưa mở khoá sẽ không nạp được.</p>
       </div>
 
-      <div class="filters two">
+      <div class="filters two pfilters">
         <input class="pq" placeholder="Tìm mã, tên súng, chế độ…" value="${esc(presetFilter.q)}" aria-label="Tìm preset">
         ${presetFilter.q || presetFilter.cls !== 'all' ? '<button class="act tiny ghost" data-act="pclear">Xoá lọc</button>' : ''}
         ${opts.sync && typeof opts.sync.hqFetch === 'function'
@@ -1210,7 +1228,7 @@ function createPanel(options) {
 
       ${renderHqReview()}
 
-      <div class="chiprow" role="group" aria-label="Lọc theo loại súng">${chips}</div>
+      <div class="chiprow pchips" role="group" aria-label="Lọc theo loại súng">${chips}</div>
 
       ${sections.length ? sections.map((s) => `<section class="card">
         <div class="card-hd"><h3>${esc(s.label)}</h3><span class="muted">${s.rows.length} mã</span></div>
@@ -1219,14 +1237,19 @@ function createPanel(options) {
           const editing = costEdit.code === preset.code;
           return `<div class="pcard${cost.state === 'disputed' ? ' pc-disputed' : ''}">
           <div class="pc-hd">
-            <b>${esc(meta.weapon)}</b>
+            <b${shortWeapon(meta) !== meta.weapon ? ` title="${esc(meta.weapon)}"` : ''}>${esc(shortWeapon(meta))}</b>
             ${preset.verified ? '<span class="tag ok" title="Đã kiểm tra">✓</span>' : ''}
           </div>
           ${meta.raw ? `<div class="pc-raw muted" title="Người gửi ghi: ${esc(meta.raw)}">ghi: ${esc(meta.raw)}</div>` : ''}
           <code class="mono pc-code">${esc(preset.code)}</code>
-          <div class="pc-meta">
-            <span class="pc-mode">${esc(canonicalMode(preset.mode))}</span>
-            ${preset.author && preset.author !== 'bundled' ? `<span class="muted pc-by">${esc(preset.author)}</span>` : ''}
+          <div class="pc-act">
+            <div class="pc-meta">
+              <span class="pc-mode ${modeTone(preset.mode)}">${esc(canonicalMode(preset.mode))}</span>
+              ${preset.author && preset.author !== 'bundled' ? `<span class="muted pc-by" title="${esc(preset.author)}">${esc(preset.author)}</span>` : ''}
+            </div>
+            <div class="pc-ft">
+              <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}" aria-label="Copy preset ${esc(preset.code)}">Copy</button>
+            </div>
           </div>
 
           ${editing ? `<div class="pc-costedit">
@@ -1240,19 +1263,15 @@ function createPanel(options) {
             <p class="muted tiny cost-hint">Chỉ áp cho build Chiến Dịch này. Số được đối chiếu theo mã build, không theo tên súng.</p>
             ${costEdit.error ? `<p class="bad tiny">${esc(costEdit.error)}</p>` : ''}
           </div>` : costEligible(preset) ? `<div class="pc-cost ${cost.value ? 'has' : 'none'}">
-            <span class="pc-cost-label">Chi phí trang bị</span>
+            <span class="pc-cost-label" title="Chi phí trang bị ở Chiến Dịch">Chi phí</span>
             <b class="pc-cost-val mono">${cost.value ? esc(Costs.formatCost(cost.value)) : '—'}</b>
             ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
             <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
               aria-label="${cost.value ? 'Sửa' : 'Thêm'} chi phí trang bị cho preset ${esc(preset.code)}"
               title="${cost.value ? 'Sửa chi phí build Chiến Dịch này' : 'Áp preset trong game rồi nhập chi phí Chiến Dịch'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>
           </div>` : `<div class="pc-cost pc-cost-na" title="Chiến Trường Toàn Diện phát sẵn trang bị, nên build này không có chi phí">
-            <span class="pc-cost-label">Chi phí trang bị</span><span class="muted pc-cost-na-text">Miễn phí ở chế độ này</span>
+            <span class="pc-cost-label">Chi phí</span><span class="muted pc-cost-na-text">Miễn phí</span>
           </div>`}
-
-          <div class="pc-ft">
-            <button class="act tiny" data-act="row-copy" data-code="${esc(preset.code)}" aria-label="Copy preset ${esc(preset.code)}">Copy</button>
-          </div>
         </div>`;
         }).join('')}</div>
       </section>`).join('')
