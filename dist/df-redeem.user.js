@@ -3017,7 +3017,12 @@ function createPanel(options) {
   const vault = opts.vault || (V ? new V.Vault({ adapter: new V.IndexedDBAdapter() }) : null);
 
   let activeRun = null;
-  let view = store.get('view', 'dashboard');
+  /* A host can pin the first view. app.html always opens on Tổng quan, and it
+   * used to force that with a second go() after open() resolved, which threw
+   * away any tab the user had clicked while the vault was still loading. */
+  let view = opts.initialView && VIEWS.includes(opts.initialView)
+    ? opts.initialView
+    : store.get('view', 'dashboard');
   let libFilter = { status: 'all', q: '', sort: 'code' };
   /* Preset view has its own filter state: grouping by weapon class only
    * helps if you can also narrow to one class and search within it. */
@@ -3156,7 +3161,10 @@ function createPanel(options) {
     const parsed = Costs.parseCost(raw);
     if (!parsed.ok) {
       costEdit = { code, value: String(raw || ''), error: parsed.error };
-      return renderPresets();
+      renderPresets();
+      /* The repaint dropped focus with the Lưu button; put the user back in the
+       * field with the bad value selected, ready to be typed over. */
+      return focusInView($('.pc-costedit .costin'), true);
     }
 
     const key = costKey(preset);
@@ -4383,6 +4391,26 @@ function createPanel(options) {
     viewHost.scrollTop = 0;
     renderFooter();
     renderBadges();
+    /* app.html mirrors this view from outside the shadow root. Navigation
+     * starts in many places (row history, bulk queue, Alt+1–6, the dashboard
+     * shortcuts), so report the view that actually painted — a superseded
+     * go() never reaches this line — instead of letting the host guess. */
+    if (typeof opts.onView === 'function') {
+      try { opts.onView(name); } catch (_) { /* a host hook must not break the view */ }
+    }
+  }
+
+  /* Move focus to a control the panel just rendered. The page host cannot see
+   * focus inside the hidden drawer, so it is told which control to focus on
+   * its own copy of the view. */
+  function focusInView(el, select) {
+    if (!el) return undefined;
+    if (el.focus) el.focus();
+    if (select && el.select) el.select();
+    if (typeof opts.onFocus === 'function') {
+      try { opts.onFocus(el, !!select); } catch (_) { /* host hook */ }
+    }
+    return undefined;
   }
 
   function renderBadges() {
@@ -4418,7 +4446,7 @@ function createPanel(options) {
     items.push(
       { label: 'Tải lại dữ liệu', hint: 'Đọc lại từ kho', icon: '⟳', run: () => go(view) },
       { label: 'Đưa mã chưa thử vào hàng chờ', hint: untriedCodes().length + ' mã', icon: '▶',
-        run: async () => { await go('run'); const q = $('.queue'); if (q) { q.value = untriedCodes().map((r) => r.code).join('\n'); updateQueueCount(); } } },
+        run: async () => { store.set('queue', untriedCodes().map((r) => r.code).join('\n')); await go('run'); } },
       { label: 'Copy danh sách chia sẻ', hint: shareableCodes().length + ' mã', icon: '⧉',
         run: () => copy(shareableCodes().map((r) => r.code).join('\n'), 'danh sách chia sẻ') },
       { label: 'Thu gọn bảng', hint: 'Esc', icon: '✕', run: closePanel },
@@ -4591,8 +4619,7 @@ function createPanel(options) {
       renderPresets();
       /* The repaint replaces the button; put focus back on its replacement so
        * a keyboard user can keep walking the list with Tab/Space. */
-      const again = $(`[data-act="hq-toggle"][data-code="${code}"]`);
-      if (again) again.focus();
+      focusInView($(`[data-act="hq-toggle"][data-code="${code}"]`));
       return undefined;
     }
     if (act === 'hq-pick-all' || act === 'hq-pick-none') {
@@ -4601,8 +4628,7 @@ function createPanel(options) {
         ? new Set(hqReview.items.filter((i) => !hqReview.known.has(i.code)).map((i) => i.code))
         : new Set();
       renderPresets();
-      const again = $(`[data-act="${act}"]`);
-      if (again) again.focus();
+      focusInView($(`[data-act="${act}"]`));
       return undefined;
     }
     if (act === 'hq-commit') return importHqPicked();
@@ -4614,8 +4640,7 @@ function createPanel(options) {
       renderPresets();
       /* Focus after render so the user can type straight away; without this the
        * button keeps focus and the first keystroke goes nowhere. */
-      const input = $('.pc-costedit .costin');
-      if (input) { input.focus(); input.select(); }
+      focusInView($('.pc-costedit .costin'), true);
       return undefined;
     }
     if (act === 'cost-cancel') { costEdit = { code: null, value: '', error: '' }; return renderPresets(); }
@@ -4628,9 +4653,11 @@ function createPanel(options) {
     if (act === 'bulk-copy') return copy([...selection].join('\n'), selection.size + ' mã');
     if (act === 'bulk-queue') {
       const picked = [...selection];
+      /* Store first: renderRun fills the queue from the store, so the Run view
+       * paints with the picked codes already in it. Filling the field after
+       * go() left any copy of the view taken at paint time empty. */
+      store.set('queue', picked.join('\n'));
       await go('run');
-      const q = $('.queue');
-      if (q) { q.value = picked.join('\n'); store.set('queue', q.value); updateQueueCount(); }
       return toast(picked.length + ' mã đã vào hàng chờ.', 'ok');
     }
 
@@ -4779,18 +4806,23 @@ function createPanel(options) {
 
   $('.close').addEventListener('click', closePanel);
   launcher.addEventListener('click', open);
+  /* app.html keeps this shell mounted inside a display:none host and shows a
+   * copy of the view, so the palette and the open/close keys would act on a
+   * shell nobody can see — and Ctrl+K would still eat the browser's own search
+   * shortcut. There only the view keys (Alt+1–6) mean anything. */
+  const embedded = surface === 'page';
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    if (!embedded && (e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
       if (e.preventDefault) e.preventDefault();
       if (shell.hidden) open();
       return paletteOpen ? closePalette() : openPalette();
     }
-    if (e.altKey && (e.key === 'd' || e.key === 'D')) {
+    if (!embedded && e.altKey && (e.key === 'd' || e.key === 'D')) {
       if (e.preventDefault) e.preventDefault();
       return shell.hidden ? open() : closePanel();
     }
     if (shell.hidden) return;
-    if (e.key === 'Escape') return paletteOpen ? closePalette() : closePanel();
+    if (!embedded && e.key === 'Escape') return paletteOpen ? closePalette() : closePanel();
     if (e.altKey && /^[1-6]$/.test(e.key)) { historyCode = null; go(VIEWS[Number(e.key) - 1]); }
   });
 

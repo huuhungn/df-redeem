@@ -17,11 +17,18 @@ if curl -sf "http://127.0.0.1:${PORT}/json/version" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$PROFILE"
+# Checks run while other windows cover this one. Windows occlusion tracking then
+# reports the page hidden: no animation frames, timers stretched to a second,
+# and a toast or repaint check fails at random. The last three flags keep the
+# page live whatever is in front of it.
 "$CHROME" \
   --user-data-dir="$(cygpath -w "$PROFILE" 2>/dev/null || echo "$PROFILE")" \
   --remote-debugging-port="$PORT" \
   --no-first-run --no-default-browser-check \
   --disable-features=Translate,OptimizationHints \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-background-timer-throttling \
   about:blank >/dev/null 2>&1 &
 
 for _ in $(seq 1 40); do

@@ -3006,7 +3006,12 @@ function createPanel(options) {
   const vault = opts.vault || (V ? new V.Vault({ adapter: new V.IndexedDBAdapter() }) : null);
 
   let activeRun = null;
-  let view = store.get('view', 'dashboard');
+  /* A host can pin the first view. app.html always opens on Tổng quan, and it
+   * used to force that with a second go() after open() resolved, which threw
+   * away any tab the user had clicked while the vault was still loading. */
+  let view = opts.initialView && VIEWS.includes(opts.initialView)
+    ? opts.initialView
+    : store.get('view', 'dashboard');
   let libFilter = { status: 'all', q: '', sort: 'code' };
   /* Preset view has its own filter state: grouping by weapon class only
    * helps if you can also narrow to one class and search within it. */
@@ -3145,7 +3150,10 @@ function createPanel(options) {
     const parsed = Costs.parseCost(raw);
     if (!parsed.ok) {
       costEdit = { code, value: String(raw || ''), error: parsed.error };
-      return renderPresets();
+      renderPresets();
+      /* The repaint dropped focus with the Lưu button; put the user back in the
+       * field with the bad value selected, ready to be typed over. */
+      return focusInView($('.pc-costedit .costin'), true);
     }
 
     const key = costKey(preset);
@@ -4372,6 +4380,26 @@ function createPanel(options) {
     viewHost.scrollTop = 0;
     renderFooter();
     renderBadges();
+    /* app.html mirrors this view from outside the shadow root. Navigation
+     * starts in many places (row history, bulk queue, Alt+1–6, the dashboard
+     * shortcuts), so report the view that actually painted — a superseded
+     * go() never reaches this line — instead of letting the host guess. */
+    if (typeof opts.onView === 'function') {
+      try { opts.onView(name); } catch (_) { /* a host hook must not break the view */ }
+    }
+  }
+
+  /* Move focus to a control the panel just rendered. The page host cannot see
+   * focus inside the hidden drawer, so it is told which control to focus on
+   * its own copy of the view. */
+  function focusInView(el, select) {
+    if (!el) return undefined;
+    if (el.focus) el.focus();
+    if (select && el.select) el.select();
+    if (typeof opts.onFocus === 'function') {
+      try { opts.onFocus(el, !!select); } catch (_) { /* host hook */ }
+    }
+    return undefined;
   }
 
   function renderBadges() {
@@ -4407,7 +4435,7 @@ function createPanel(options) {
     items.push(
       { label: 'Tải lại dữ liệu', hint: 'Đọc lại từ kho', icon: '⟳', run: () => go(view) },
       { label: 'Đưa mã chưa thử vào hàng chờ', hint: untriedCodes().length + ' mã', icon: '▶',
-        run: async () => { await go('run'); const q = $('.queue'); if (q) { q.value = untriedCodes().map((r) => r.code).join('\n'); updateQueueCount(); } } },
+        run: async () => { store.set('queue', untriedCodes().map((r) => r.code).join('\n')); await go('run'); } },
       { label: 'Copy danh sách chia sẻ', hint: shareableCodes().length + ' mã', icon: '⧉',
         run: () => copy(shareableCodes().map((r) => r.code).join('\n'), 'danh sách chia sẻ') },
       { label: 'Thu gọn bảng', hint: 'Esc', icon: '✕', run: closePanel },
@@ -4580,8 +4608,7 @@ function createPanel(options) {
       renderPresets();
       /* The repaint replaces the button; put focus back on its replacement so
        * a keyboard user can keep walking the list with Tab/Space. */
-      const again = $(`[data-act="hq-toggle"][data-code="${code}"]`);
-      if (again) again.focus();
+      focusInView($(`[data-act="hq-toggle"][data-code="${code}"]`));
       return undefined;
     }
     if (act === 'hq-pick-all' || act === 'hq-pick-none') {
@@ -4590,8 +4617,7 @@ function createPanel(options) {
         ? new Set(hqReview.items.filter((i) => !hqReview.known.has(i.code)).map((i) => i.code))
         : new Set();
       renderPresets();
-      const again = $(`[data-act="${act}"]`);
-      if (again) again.focus();
+      focusInView($(`[data-act="${act}"]`));
       return undefined;
     }
     if (act === 'hq-commit') return importHqPicked();
@@ -4603,8 +4629,7 @@ function createPanel(options) {
       renderPresets();
       /* Focus after render so the user can type straight away; without this the
        * button keeps focus and the first keystroke goes nowhere. */
-      const input = $('.pc-costedit .costin');
-      if (input) { input.focus(); input.select(); }
+      focusInView($('.pc-costedit .costin'), true);
       return undefined;
     }
     if (act === 'cost-cancel') { costEdit = { code: null, value: '', error: '' }; return renderPresets(); }
@@ -4617,9 +4642,11 @@ function createPanel(options) {
     if (act === 'bulk-copy') return copy([...selection].join('\n'), selection.size + ' mã');
     if (act === 'bulk-queue') {
       const picked = [...selection];
+      /* Store first: renderRun fills the queue from the store, so the Run view
+       * paints with the picked codes already in it. Filling the field after
+       * go() left any copy of the view taken at paint time empty. */
+      store.set('queue', picked.join('\n'));
       await go('run');
-      const q = $('.queue');
-      if (q) { q.value = picked.join('\n'); store.set('queue', q.value); updateQueueCount(); }
       return toast(picked.length + ' mã đã vào hàng chờ.', 'ok');
     }
 
@@ -4768,18 +4795,23 @@ function createPanel(options) {
 
   $('.close').addEventListener('click', closePanel);
   launcher.addEventListener('click', open);
+  /* app.html keeps this shell mounted inside a display:none host and shows a
+   * copy of the view, so the palette and the open/close keys would act on a
+   * shell nobody can see — and Ctrl+K would still eat the browser's own search
+   * shortcut. There only the view keys (Alt+1–6) mean anything. */
+  const embedded = surface === 'page';
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    if (!embedded && (e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
       if (e.preventDefault) e.preventDefault();
       if (shell.hidden) open();
       return paletteOpen ? closePalette() : openPalette();
     }
-    if (e.altKey && (e.key === 'd' || e.key === 'D')) {
+    if (!embedded && e.altKey && (e.key === 'd' || e.key === 'D')) {
       if (e.preventDefault) e.preventDefault();
       return shell.hidden ? open() : closePanel();
     }
     if (shell.hidden) return;
-    if (e.key === 'Escape') return paletteOpen ? closePalette() : closePanel();
+    if (!embedded && e.key === 'Escape') return paletteOpen ? closePalette() : closePanel();
     if (e.altKey && /^[1-6]$/.test(e.key)) { historyCode = null; go(VIEWS[Number(e.key) - 1]); }
   });
 
@@ -4844,6 +4876,10 @@ function createPanel(options) {
   };
   const panel = createPanel({
     version: '3.3.2', target: 'page', surface: 'page', sync,
+    /* The page always opens on Tổng quan. Passing it here, instead of calling
+     * show('dashboard') once open() resolved, lets a tab the user clicked while
+     * the vault was still loading win: that late call used to overwrite it. */
+    initialView: 'dashboard',
     /* The drawer shell is mounted display:none below, which hides its shadow
      * toast stack too. Copy/save feedback must land in this page instead. */
     toastHost: document.getElementById('toasts'),
@@ -4854,9 +4890,20 @@ function createPanel(options) {
       const on = document.querySelector('.side-nav .on');
       if (on && on.dataset.view === name) recloneView();
     },
+    /* Navigation starts in many places — a Library row's history button, bulk
+     * queue, Alt+1–6, the dashboard shortcuts — and the panel names the view
+     * that actually painted, so the page title and nav never have to guess. */
+    onView: (name) => mirrorView(name),
+    /* Focus the panel moves (into the cost field, back onto an HQ pick) lands
+     * on this page's copy of the control after the next repaint. */
+    onFocus: (el, select) => { pendingFocus = { id: identify(el), select }; },
   });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
+  /* The view this page is showing, set only once it has painted, and a focus
+   * request from the panel that waits for the next copy of the view. */
+  let shownView = null;
+  let pendingFocus = null;
 
   /* Every form control below is a clone; its drawer original is what the panel
    * reads. Pair them by first class plus the code of the row the control sits
@@ -4883,45 +4930,87 @@ function createPanel(options) {
   const holdsCaret = (el) => el.tagName === 'TEXTAREA'
     || (el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|file|image|range|color)$/.test(el.type));
 
+  /* What the user is on, in a form that survives a repaint. A button is named
+   * by the fields that route its click — the first class of a button is just
+   * "act", shared by every button in a card — and any other control by
+   * controlKey. */
+  const actionSelector = (btn) => '[data-act="' + btn.dataset.act + '"]'
+    + (btn.dataset.code ? '[data-code="' + btn.dataset.code + '"]' : '')
+    + (btn.dataset.k ? '[data-k="' + btn.dataset.k + '"]' : '');
+  function identify(el) {
+    if (!el) return null;
+    return el.dataset && el.dataset.act ? { sel: actionSelector(el) } : controlKey(el);
+  }
+  function locate(root, id) {
+    if (!root || !id) return null;
+    return id.sel ? root.querySelector(id.sel) : findControl(root, id);
+  }
+
   /* A repaint swaps the whole view for a fresh copy of the drawer's render. The
    * field under the user's caret is carried across as the same node instead of
    * a copy: Chrome keeps a text control's own caret, selection and IME state on
    * the element and restores them on focus(), which no copy can reproduce. A
    * script cannot even place the caret in a number input, where
    * setSelectionRange throws, so a fresh copy there typed every digit at the
-   * front. Any other focused control gets focus on its copy. */
+   * front. Any other focused control gets focus on its copy, unless the panel
+   * asked for focus somewhere else (the cost field it just opened). */
   function recloneView() {
     const rendered = panel._shadow.querySelector('.view-host .pad');
     if (!rendered) return;
     const fresh = rendered.cloneNode(true);
     const active = document.activeElement;
-    const key = active && active !== document.body && host.contains(active) ? controlKey(active) : null;
+    const inView = active && active !== document.body && host.contains(active);
+    const key = inView ? controlKey(active) : null;
+    const was = inView ? identify(active) : null;
     if (key && holdsCaret(active)) {
       const spot = findControl(fresh, key);
       if (spot) spot.replaceWith(active);
     }
     host.innerHTML = '';
     host.appendChild(fresh);
-    const back = key && findControl(host, key);
-    if (back && typeof back.focus === 'function') back.focus({ preventScroll: true });
+    const want = pendingFocus || (was ? { id: was, select: false } : null);
+    pendingFocus = null;
+    const back = want && locate(host, want.id);
+    if (back && typeof back.focus === 'function') {
+      back.focus({ preventScroll: true });
+      if (want.select && typeof back.select === 'function') back.select();
+    }
   }
-  /* Keystrokes inside the delay coalesce into one repaint. */
-  let repaintTimer = 0;
+  /* Every drawer render is synchronous, so the copy can be taken in the same
+   * turn, right after the handler that painted it. A timer was used before and
+   * Chrome stretches timers in a background tab from 20ms to a second, which
+   * left the page showing the old view for that long. Repaints requested in one
+   * turn — a replayed keystroke and the mutations it caused — coalesce. */
+  let repaintQueued = false;
   function scheduleReclone() {
-    clearTimeout(repaintTimer);
-    repaintTimer = setTimeout(recloneView, 20);
+    if (repaintQueued) return;
+    repaintQueued = true;
+    queueMicrotask(() => { repaintQueued = false; recloneView(); });
   }
 
   nav.innerHTML = VIEWS.map((v) =>
     '<button data-view="' + v + '"><span class="vi">' + ICONS[v] + '</span>' + LABELS[v] + '</button>').join('');
 
-  /* The drawer renders into its own shadow root; move the rendered view node
-   * into this page so both surfaces share one renderer. */
-  async function show(name) {
-    await panel.go(name);
-    const rendered = panel._shadow.querySelector('.view-host .pad');
-    host.innerHTML = '';
-    if (rendered) host.appendChild(rendered.cloneNode(true));
+  /* The drawer renders into its own shadow root; this page shows a copy so
+   * both surfaces share one renderer. The panel calls this (onView) each time
+   * a view finishes painting, whoever started the navigation. */
+  function mirrorView(name) {
+    const changed = name !== shownView;
+    shownView = name;
+    if (changed) {
+      /* A different view starts at its top, as it does in the drawer. Nothing
+       * of the old view's focus or scroll offset belongs to the new one. */
+      const rendered = panel._shadow.querySelector('.view-host .pad');
+      host.innerHTML = '';
+      if (rendered) host.appendChild(rendered.cloneNode(true));
+      const want = pendingFocus;
+      pendingFocus = null;
+      const target = want && locate(host, want.id);
+      if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
+      if (typeof window.scrollTo === 'function') window.scrollTo(0, 0);
+    } else {
+      recloneView();
+    }
     document.querySelector('.page-title').textContent = LABELS[name];
     document.querySelector('.page-hint').textContent = HINTS[name];
     Array.prototype.forEach.call(nav.children, (b) => b.classList.toggle('on', b.dataset.view === name));
@@ -4935,35 +5024,41 @@ function createPanel(options) {
       runBtn.appendChild(s);
     }
   }
+  /* Navigate the way the drawer does — through its own tab — so the page gets
+   * the same semantics, such as dropping a single-code History filter. */
+  function show(name) {
+    const tab = panel._shadow.querySelector('.vtab[data-view="' + name + '"]');
+    if (tab) tab.click(); else panel.go(name);
+  }
+
+  /* Views also repaint on their own: a filter chip, the History rows that
+   * arrive from the drawer's mirror after the first paint, a sync status line.
+   * Copy every repaint of the drawer view instead of guessing when one is due;
+   * the old fixed 30ms re-render raced async handlers and undid navigation. */
+  const drawerHost = panel._shadow.querySelector('.view-host');
+  if (typeof MutationObserver === 'function' && drawerHost) {
+    new MutationObserver(() => {
+      /* Mid-navigation the drawer's tab already names the next view while the
+       * old one is still on screen; that view's own paint arrives via onView. */
+      const tab = panel._shadow.querySelector('.vtab.on');
+      if (!tab || tab.dataset.view === shownView) scheduleReclone();
+    }).observe(drawerHost, { childList: true, subtree: true, characterData: true });
+  }
 
   /* Clicks inside the cloned view are replayed onto the real (shadow) node so
-   * every handler stays in one place. */
+   * every handler stays in one place. Whatever the handler paints next comes
+   * back through the observer above, or through onView when it navigates. */
   host.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
-    if (act === 'goto-run') return show('run');
-    if (act === 'goto-share') return show('share');
-    if (act === 'goto-history') return show('history');
     if (act === 'open-redeem') { window.open('https://redeem.df.garena.sg/vi/cdkgarena.html', '_blank'); return; }
     /* Most actions are unique. Filter chips are not: all carry data-act="pchip"
      * and differ by data-k. Preserve every identity field that affects dispatch;
      * otherwise the cloned page always replays a chip click onto the first
      * shadow button ("Tất cả"), so the visible filter never changes. */
-    const twinSelector = '[data-act="' + act + '"]'
-      + (btn.dataset.code ? '[data-code="' + btn.dataset.code + '"]' : '')
-      + (btn.dataset.k ? '[data-k="' + btn.dataset.k + '"]' : '');
-    const twin = panel._shadow.querySelector(twinSelector);
-    if (twin) {
-      twin.click();
-      /* Re-cloning replaces the clicked button. Keep keyboard focus on its copy
-       * when it survives the repaint, or Tab restarts from the top of the page. */
-      const hadFocus = document.activeElement === btn;
-      setTimeout(() => show(panel._views.find((v) => document.querySelector('.side-nav .on').dataset.view === v)).then(() => {
-        const again = hadFocus && host.querySelector(twinSelector);
-        if (again && !again.disabled) again.focus();
-      }), 30);
-    }
+    const twin = panel._shadow.querySelector(actionSelector(btn));
+    if (twin) twin.click();
   });
   /* Typing is copied onto the drawer original, whose handlers re-render the
    * view, and the clone is refreshed from that render. Checkboxes and selects
@@ -5001,12 +5096,17 @@ function createPanel(options) {
     const b = e.target.closest('[data-view]');
     if (b) show(b.dataset.view);
   });
-  document.getElementById('p-refresh').addEventListener('click', () => show(document.querySelector('.side-nav .on').dataset.view));
+  /* The drawer's own refresh: re-reads the vault and says so in a toast. */
+  document.getElementById('p-refresh').addEventListener('click', () => {
+    const btn = panel._shadow.querySelector('.hd [data-act="refresh"]');
+    if (btn) btn.click(); else show(shownView || 'dashboard');
+  });
   document.getElementById('open-redeem').addEventListener('click', () => window.open('https://redeem.df.garena.sg/vi/cdkgarena.html', '_blank'));
   document.getElementById('open-options').addEventListener('click', () => { if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage(); });
 
-  /* mount the hidden drawer shell so its renderers have a document */
+  /* mount the hidden drawer shell so its renderers have a document. open()
+   * paints initialView (Tổng quan) unless the user already picked a tab. */
   document.documentElement.appendChild(panel._host);
   panel._host.style.display = 'none';
-  panel.open().then(() => show('dashboard'));
+  panel.open();
 }());

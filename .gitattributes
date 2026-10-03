@@ -8,6 +8,9 @@
 *.json text eol=lf
 *.py text eol=lf
 *.md text eol=lf
+# Shell scripts break under CRLF (`$'\r': command not found`).
+*.sh text eol=lf
+.gitattributes text eol=lf
 
 # Binary assets must never be line-ending converted.
 *.png binary

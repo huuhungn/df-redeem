@@ -1415,6 +1415,119 @@ test('preset cards: short weapon name, tinted mode chip, Copy beside the mode', 
   assert(shortened > 0, 'shortened names must keep the full catalogue name as a tooltip');
 });
 
+/* app.html shows a copy of this view and used to guess when it changed: a fixed
+ * show('dashboard') after open() overwrote a tab clicked during startup, and
+ * navigation started inside the view (row history, bulk queue, Alt+1–6) left
+ * the page on the old view. The panel now names every view it paints. */
+async function seededPanel(extra) {
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  await v.seedOnFirstRun(sandbox.__SEED);
+  const views = [];
+  const focused = [];
+  /* What the host would copy: the view's queue at the instant it is reported. */
+  const queueAtPaint = [];
+  const p = sandbox.__createPanel(Object.assign({
+    version: '3.3.3', target: 'test', vault: v,
+    onView: (name) => {
+      views.push(name);
+      const q = p._shadow.querySelector('.queue');
+      queueAtPaint.push(q ? q.value : null);
+    },
+    onFocus: (el, select) => focused.push({ cls: el.className, select }),
+  }, extra || {}));
+  return { p, v, views, focused, queueAtPaint };
+}
+
+test('a host-pinned first view loses to a tab picked while the panel opens', async () => {
+  /* The stored view must not decide the first paint once a host pins one. */
+  sandbox.localStorage.setItem('dfRedeem:view', JSON.stringify('history'));
+  const h = await seededPanel({ initialView: 'dashboard' });
+  const opening = h.p.open();
+  /* The user clicks Preset before the vault has finished loading. */
+  const picking = h.p.go('presets');
+  await opening;
+  await picking;
+  assert(h.views[h.views.length - 1] === 'presets',
+    'the last painted view must be the tab the user picked, got ' + h.views.join(' → '));
+  assert(!h.views.includes('history'), 'a pinned first view must ignore the stored view');
+  assert(h.p._shadow.querySelector('.vtab.on').dataset.view === 'presets', 'drawer tab must agree');
+
+  const fresh = await seededPanel({ initialView: 'dashboard' });
+  await fresh.p.open();
+  assert(fresh.views.join() === 'dashboard', 'with no click the pinned view paints once, got ' + fresh.views.join());
+  sandbox.localStorage.removeItem('dfRedeem:view');
+});
+
+test('navigation started inside a view is reported to the host', async () => {
+  const h = await seededPanel();
+  await h.p.go('library');
+  const row = h.p._shadow.querySelector('tbody tr');
+  const code = row.dataset.code;
+  row.querySelector('[data-act="row-hist"]').click();
+  await until(() => h.views[h.views.length - 1] === 'history', 'row history must report the History view');
+  assert(h.p._shadow.textContent.includes(code), 'History must open filtered to the clicked code');
+
+  await h.p.go('library');
+  const pick = h.p._shadow.querySelectorAll('tbody tr .pick')[1];
+  const picked = pick.closest('tr').dataset.code;
+  pick.checked = true;
+  pick.dispatchEvent({ type: 'change', target: pick });
+  h.p._shadow.querySelector('[data-act="bulk-queue"]').click();
+  await until(() => h.views[h.views.length - 1] === 'run', 'bulk queue must report the Run view');
+  /* The page copies the view the moment it is reported, so the queue must
+   * already be in that paint, not filled in afterwards. */
+  const painted = h.queueAtPaint[h.queueAtPaint.length - 1];
+  assert(painted === picked, `Run was reported with queue "${painted}", expected "${picked}"`);
+  assert(/1 mã/.test(h.p._shadow.querySelector('.qcount').textContent), 'queue count must match the painted queue');
+});
+
+test('the cost editor tells the host where focus went', async () => {
+  const h = await seededPanel();
+  await h.p.go('presets');
+  h.p._shadow.querySelector('[data-act="cost-edit"]').click();
+  await until(() => h.focused.length, 'opening the cost editor must report the focused field');
+  assert(/costin/.test(h.focused[0].cls) && h.focused[0].select, 'focus must go to the cost field, selected');
+  h.p._shadow.querySelector('.pc-costedit .costin').value = 'abc';
+  h.p._shadow.querySelector('[data-act="cost-save"]').click();
+  await until(() => h.focused.length === 2, 'a rejected value must send focus back to the field');
+  assert(/costin/.test(h.focused[1].cls) && h.focused[1].select, 'the rejected value must be selected for retyping');
+});
+
+test('an embedded page panel leaves Ctrl+K, Alt+D and Escape to the page', async () => {
+  const embedded = makeDom();
+  const keyHandlers = [];
+  embedded.document.addEventListener = (type, fn) => { if (type === 'keydown') keyHandlers.push(fn); };
+  const box = { ...sandbox, document: embedded.document };
+  box.window = box; box.self = box; box.globalThis = box;
+  vm.createContext(box);
+  vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault;`, box, { filename: 'bundle-page.js' });
+  const BV = box.__Vault;
+  const press = (key, mods) => {
+    let prevented = false;
+    const ev = Object.assign({ key, preventDefault() { prevented = true; } }, mods);
+    keyHandlers.forEach((fn) => fn(ev));
+    return prevented;
+  };
+
+  const page = box.__createPanel({ version: 'test', target: 'test', surface: 'page', vault: new BV.Vault({ adapter: new BV.MemoryAdapter() }) });
+  await page.open();
+  assert(!press('k', { ctrlKey: true }), 'Ctrl+K belongs to the browser on app.html');
+  assert(!press('d', { altKey: true }), 'Alt+D must not toggle the hidden drawer on app.html');
+  press('Escape', {});
+  assert(!page._shell.hidden, 'Escape must not close the hidden shell the page copies from');
+  press('2', { altKey: true });
+  await until(() => page._shadow.querySelector('.vtab.on').dataset.view === 'library', 'Alt+2 must still switch view on app.html');
+
+  keyHandlers.length = 0;
+  const drawer = box.__createPanel({ version: 'test', target: 'test', vault: new BV.Vault({ adapter: new BV.MemoryAdapter() }) });
+  await drawer.open();
+  assert(press('k', { ctrlKey: true }), 'the drawer keeps Ctrl+K for its palette');
+  press('Escape', {});
+  press('Escape', {});
+  assert(drawer._shell.hidden, 'Escape still closes the drawer');
+});
+
 (async () => {
   for (const t of tests) {
     /* A test awaiting a promise that never settles let Node drain its event

@@ -75,6 +75,38 @@ function errorSink(cx) {
   if (!ready) { fail('app.html mounts with 6 nav entries and content', 'never rendered within 15s'); }
   else pass('app.html mounts with 6 nav entries and content');
 
+  /* ── a tab picked while the page is still loading must stick ────────────
+   * The page used to paint Tổng quan once startup finished, on top of
+   * whatever the user had clicked in the meantime. Reload, click Preset the
+   * moment the nav exists, and the page must still be on Preset afterwards. */
+  {
+    const name = 'app keeps a tab clicked during startup';
+    /* Not app.navigate(): it waits for the load to complete, and by then the
+     * startup this check is about may already be over. Click as soon as the
+     * nav exists, as an impatient user does. */
+    await app.send('Page.navigate', { url: `chrome-extension://${EXT_ID}/app.html` });
+    let clicked = false;
+    for (let i = 0; i < 400 && !clicked; i++) {
+      clicked = await app.evaluate(`(() => { const b = document.querySelector('.side-nav [data-view="presets"]'); if (!b) return false; b.click(); return true; })()`).catch(() => false);
+      if (!clicked) await new Promise((r) => setTimeout(r, 5));
+    }
+    let s = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      s = await app.evaluate(`({ on: (document.querySelector('.side-nav .on') || { dataset: {} }).dataset.view,
+        cards: document.querySelectorAll('#page-view .pcard').length })`);
+      if (s.cards) break;
+    }
+    /* Startup is still finishing; give a late repaint the chance to undo it. */
+    await new Promise((r) => setTimeout(r, 1500));
+    s = await app.evaluate(`({ on: (document.querySelector('.side-nav .on') || { dataset: {} }).dataset.view,
+      title: document.querySelector('.page-title').textContent,
+      cards: document.querySelectorAll('#page-view .pcard').length })`);
+    if (!clicked) fail(name, 'nav never appeared');
+    else if (s.on !== 'presets' || s.cards !== SEED_PRESETS) fail(name, `page ended on "${s.title}" with ${s.cards} cards`);
+    else pass(name, s.cards + ' preset cards');
+  }
+
   for (const view of VIEWS) {
     appErrors();
     /* Click the real nav button — exercises the app's own routing, not an
@@ -286,6 +318,62 @@ function errorSink(cx) {
     else pass(name, got[1] + ' card(s)');
     await app.evaluate('document.querySelector("#page-view .pq").select()');
     await key('Backspace', 8);
+  }
+
+  /* ── app.html follows navigation that starts inside a view ──────────────
+   * The page shows a copy of the drawer's view and used to guess when it
+   * changed: the History button on a Library row and Alt+1–6 painted the new
+   * view in the hidden drawer only, and the page kept the old one on screen. */
+  const pageState = () => app.evaluate(`({
+    title: document.querySelector('.page-title').textContent,
+    on: (document.querySelector('.side-nav .on') || { dataset: {} }).dataset.view,
+    text: document.getElementById('page-view').textContent,
+    scrollY: Math.round(window.scrollY),
+  })`);
+  {
+    const name = 'app follows a Library row into its History';
+    await openView('library', 'document.querySelectorAll("#page-view tbody tr").length > 3');
+    appErrors();
+    const code = await app.evaluate('document.querySelectorAll("#page-view tbody tr")[1].dataset.code');
+    await press('#page-view tbody tr:nth-child(2) [data-act="row-hist"]');
+    let s = await pageState();
+    for (let i = 0; i < 20 && s.on !== 'history'; i++) { await sleep(150); s = await pageState(); }
+    const errs = appErrors();
+    if (errs.length) fail(name, 'console: ' + errs.join(' | '));
+    else if (s.on !== 'history' || s.title !== 'Lịch sử') fail(name, `page stayed on "${s.title}" (${s.on})`);
+    else if (!s.text.includes(code)) fail(name, 'History does not show the clicked code ' + code);
+    else pass(name, code);
+  }
+  {
+    const name = 'app follows Alt+1–6 and starts the new view at its top';
+    await openView('library', 'document.querySelectorAll("#page-view tbody tr").length > 3');
+    await app.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)');
+    await sleep(200);
+    await app.evaluate('document.activeElement && document.activeElement.blur && document.activeElement.blur()');
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await app.send('Input.dispatchKeyEvent', { type, key: '4', code: 'Digit4', modifiers: 1, windowsVirtualKeyCode: 52 });
+    }
+    let s = await pageState();
+    for (let i = 0; i < 20 && s.on !== 'presets'; i++) { await sleep(150); s = await pageState(); }
+    const cards = await app.evaluate('document.querySelectorAll("#page-view .pcard").length');
+    if (s.on !== 'presets' || cards !== SEED_PRESETS) fail(name, `Alt+4 left the page on "${s.title}" with ${cards} cards`);
+    else if (s.scrollY !== 0) fail(name, 'the new view opened scrolled to ' + s.scrollY + 'px');
+    else pass(name, cards + ' preset cards');
+  }
+  {
+    const name = 'app cost editor takes typing straight away';
+    await openView('presets', 'document.querySelectorAll("#page-view .pcard").length > 0');
+    appErrors();
+    await press('#page-view [data-act="cost-edit"]');
+    await sleep(300);
+    const focused = await focusedClass();
+    await typeKeys('29');
+    const value = await app.evaluate('(document.querySelector("#page-view .pc-costedit .costin") || {}).value');
+    const errs = appErrors();
+    if (errs.length) fail(name, 'console: ' + errs.join(' | '));
+    else if (!/costin/.test(focused) || value !== '29') fail(name, `focus on "${focused}", field holds "${value}"`);
+    else pass(name, 'focus in the cost field');
+    await press('#page-view [data-act="cost-cancel"]');
   }
 
   /* ── contrast: no control may render with the browser's default chrome ───
