@@ -1158,6 +1158,15 @@ test('app.html preset tracks are wide enough to keep the cost row on one line', 
   assert(pad && Number(pad[1]) <= 8, '.pc-cost-edit side padding must stay at 8px or less');
 });
 
+test('drawer preset tracks leave room for the full cost row', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'components.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = css.match(/\.df \.pgrid \{([^}]+)\}/);
+  const grid = rule && rule[1].match(/minmax\(min\((\d+)px, 100%\), 1fr\)/);
+  assert(grid && Number(grid[1]) >= 262,
+    'the shared grid must reserve 262px per card so drawer cost rows do not wrap');
+});
+
 test('high contrast keeps the status dot visible', () => {
   /* forced-colors strips background-color outright, so a dot that is only a
    * coloured background becomes invisible and the row loses its signal. */

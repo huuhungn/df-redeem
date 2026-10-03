@@ -579,7 +579,9 @@
 }
 
 /* ── preset cards ──────────────────────────────────────────────────────── */
-.df .pgrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
+/* Keep each cost row together in the drawer too. The two column layout
+ * naturally collapses when a 262px card no longer fits. */
+.df .pgrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(262px, 100%), 1fr)); }
 .df .pcard {
   min-width: 0;
   display: grid; gap: 6px; padding: 9px 10px;
