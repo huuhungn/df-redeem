@@ -242,6 +242,7 @@ ${UI}
     /* HQ's recommended codes, fetched by the worker (the files send no CORS
      * header). Prices come back separately and are display-only. */
     hqFetch: () => askBridge('hqFetch'),
+    hqReadPrices: () => askBridge('hqReadPrices'),
   };
 
   const panel = createPanel({ version: '${VERSION}', target: 'extension', store, sync });
@@ -676,6 +677,7 @@ ${UI}
     setLocal: (key, value) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'setPanelState', payload: { key, value } }),
     communityPush: (rows) => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'communityPush', payload: { rows } }),
     hqFetch: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqFetch' }),
+    hqReadPrices: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqReadPrices' }),
   };
   const panel = createPanel({
     version: '${VERSION}', target: 'page', surface: 'page', sync,
@@ -1759,6 +1761,9 @@ async function handleSync(op, payload, sender) {
    * settings read. */
   if (op === 'hqFetch') return hqFetch();
   if (op === 'hqPrices') return hqSavePrices(payload, sender);
+  /* Read-only: the cards show the stored HQ price while a build has no
+   * measured cost. Nothing here writes or reaches the network. */
+  if (op === 'hqReadPrices') return { ok: true, prices: await readHqPrices() };
   const svc = service();
   const stored = await svc.getLocal({ [SETTINGS_KEY]: DFRedeemSync.DEFAULT_SETTINGS });
   const current = { ...DFRedeemSync.DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] || {}) };

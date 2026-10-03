@@ -97,6 +97,11 @@ function createPanel(options) {
    * checked state back. `seq` drops a fetch that lands after a close. */
   let hqReview = null;
   let hqSeq = 0;
+  /* Prices hq-capture.js read on the HQ page, keyed by code: { price, seenAt }.
+   * Shown on a card only while nobody has measured that build, under its own
+   * "Giá HQ" badge. It is never a cost: see hqPriceFor. */
+  let hqPriceBook = {};
+  let hqPriceSeq = 0;
   let historyCode = null;
   let paletteOpen = false;
 
@@ -335,6 +340,7 @@ function createPanel(options) {
      * drawer's runs on screen while the bridge is asked again. */
     cache.history = mergeHistory(hist, mirror.rows);
     loadMirror();
+    loadHqPrices();
   }
 
   /* IndexedDB is per-origin, so a run done in the Garena drawer is absent
@@ -956,7 +962,8 @@ function createPanel(options) {
    *
    * HQ's price is display-only. It is a snapshot that moves with the market and
    * was measured by HQ, not by this community, so it never becomes preset.cost,
-   * never feeds costFor() and is never reported to the shared cost record. */
+   * never feeds costFor() and is never reported to the shared cost record. A
+   * card with no measured cost shows it instead of "—", labelled "Giá HQ". */
   const HQ_CODE_RE = /^[A-Z0-9]{21}$/;
   const HQ_PAGE_URL = 'https://www.playdeltaforce.com/events/hq/vi/';
   const hqText = (value, max) => String(value == null ? '' : value).trim().slice(0, max);
@@ -992,6 +999,61 @@ function createPanel(options) {
       if (Number.isInteger(price) && price > 0) out[item.code] = price;
     }
     return out;
+  }
+
+  /* The worker's whole price store, re-checked like hqPrices because the reply
+   * crossed a message hop. null means "no answer", so a failed read keeps the
+   * prices already on screen instead of blanking them. */
+  function hqPriceRows(reply) {
+    if (!reply || reply.ok === false || !reply.prices || typeof reply.prices !== 'object') return null;
+    const out = {};
+    for (const [raw, row] of Object.entries(reply.prices)) {
+      const code = String(raw).toUpperCase();
+      const price = Number(row && typeof row === 'object' ? row.price : NaN);
+      if (!HQ_CODE_RE.test(code) || !Number.isInteger(price) || price <= 0) continue;
+      out[code] = { price, seenAt: hqText(row.seen_at, 40) };
+    }
+    return out;
+  }
+
+  /* HQ's reference price for a build, or null. Kept apart from costFor on
+   * purpose: the cost editor, the save path and the community report all read
+   * costFor, so this figure can never be submitted as a cost. Only the
+   * Operations cost row calls it; Warfare cards have no cost row at all. */
+  function hqPriceFor(preset) {
+    return hqPriceBook[costKey(preset)] || null;
+  }
+
+  function hqPriceHint(hq) {
+    const at = new Date(hq.seenAt);
+    const day = hq.seenAt && !Number.isNaN(at.getTime()) ? ` ghi ngày ${at.toLocaleDateString('vi-VN')}` : '';
+    return `Giá HQ${day}, chỉ để tham khảo: chưa phải chi phí đo trong game và không gửi lên kho chung.`;
+  }
+
+  /* Off the navigation path: in the drawer this read goes through askBridge,
+   * which can wait on a sleeping worker, and no tab switch may hang on it. */
+  function loadHqPrices() {
+    if (!opts.sync || typeof opts.sync.hqReadPrices !== 'function') return;
+    const seq = ++hqPriceSeq;
+    Promise.resolve()
+      .then(() => opts.sync.hqReadPrices())
+      .then((reply) => {
+        const book = hqPriceRows(reply);
+        if (!book || seq !== hqPriceSeq) return;
+        if (JSON.stringify(book) === JSON.stringify(hqPriceBook)) return;
+        hqPriceBook = book;
+        repaintHqPrices();
+      })
+      .catch(() => { /* a reference price must never break the view */ });
+  }
+
+  /* Prices can land after the grid painted. Skip the repaint while a cost
+   * editor is open: it would reset the number being typed. The next render
+   * after Lưu or Thôi picks the prices up. */
+  function repaintHqPrices() {
+    if (view !== 'presets' || costEdit.code) return;
+    renderPresets();
+    hqPainted();
   }
 
   /* Same row shape core/hq.js toPresetRow builds, kept local because hq.js is
@@ -1060,6 +1122,12 @@ function createPanel(options) {
       hqReview.items = items;
       hqReview.known = new Set(items.filter((i) => have.has(i.code)).map((i) => i.code));
       hqReview.prices = hqPrices(reply, items);
+      /* Same store the cards read, so an imported code shows its HQ price
+       * without waiting for the next full read. */
+      for (const [code, price] of Object.entries(hqReview.prices)) {
+        const had = hqPriceBook[code];
+        hqPriceBook[code] = { price, seenAt: had && had.price === price ? had.seenAt : '' };
+      }
       hqReview.failed = Array.isArray(reply.failed) ? reply.failed : [];
       /* Start with every new code picked: the list is short and curated, and
        * the user unticks what they do not want before anything is saved. On a
@@ -1242,6 +1310,8 @@ function createPanel(options) {
         <div class="card-hd"><h3>${esc(s.label)}</h3><span class="muted">${s.rows.length} mã</span></div>
         <div class="pgrid">${s.rows.map(({ preset, meta }) => {
           const cost = costFor(preset);
+          /* A measured cost always wins; HQ's figure only fills an empty row. */
+          const hq = cost.value ? null : hqPriceFor(preset);
           const editing = costEdit.code === preset.code;
           return `<div class="pcard${cost.state === 'disputed' ? ' pc-disputed' : ''}">
           <div class="pc-hd">
@@ -1270,10 +1340,11 @@ function createPanel(options) {
             </div>
             <p class="muted tiny cost-hint">Chỉ áp cho build Chiến Dịch này. Số được đối chiếu theo mã build, không theo tên súng.</p>
             ${costEdit.error ? `<p class="bad tiny">${esc(costEdit.error)}</p>` : ''}
-          </div>` : costEligible(preset) ? `<div class="pc-cost ${cost.value ? 'has' : 'none'}">
+          </div>` : costEligible(preset) ? `<div class="pc-cost ${cost.value ? 'has' : hq ? 'hq' : 'none'}">
             <span class="pc-cost-label" title="Chi phí trang bị ở Chiến Dịch">Chi phí</span>
-            <b class="pc-cost-val mono">${cost.value ? esc(Costs.formatCost(cost.value)) : '—'}</b>
-            ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>` : ''}
+            <b class="pc-cost-val mono"${hq ? ` title="${esc(hqPriceHint(hq))}"` : ''}>${cost.value ? esc(Costs.formatCost(cost.value)) : hq ? `≈ ${esc(Costs.formatCost(hq.price))}` : '—'}</b>
+            ${cost.value ? `<span class="cost-state cs-${esc(cost.state)}" title="${esc(cost.hint)}">${esc(cost.label)}</span>`
+              : hq ? `<span class="cost-state cs-hq" title="${esc(hqPriceHint(hq))}">Giá HQ</span>` : ''}
             <button class="act tiny ghost pc-cost-edit" data-act="cost-edit" data-code="${esc(preset.code)}"
               aria-label="${cost.value ? 'Sửa' : 'Thêm'} chi phí trang bị cho preset ${esc(preset.code)}"
               title="${cost.value ? 'Sửa chi phí build Chiến Dịch này' : 'Áp preset trong game rồi nhập chi phí Chiến Dịch'}">${cost.value ? 'Sửa' : '+ Thêm'}</button>

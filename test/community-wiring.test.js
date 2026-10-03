@@ -222,6 +222,9 @@ for (const [file, label] of [['extension/content.js', 'extension drawer'], ['ext
   check(`${label} only sends bridge ops background.js handles`,
     unhandled.length === 0,
     'unhandled: ' + unhandled.join(','));
+  /* The panel skips the HQ price read when sync lacks it, so a bundle that
+   * forgot the wire would quietly fall back to "—" on every unmeasured card. */
+  check(`${label} wires the stored HQ price read`, ops.includes('hqReadPrices'), 'ops: ' + ops.join(','));
 }
 
 console.log(`\n${passed} passed, ${failed} failed, ${passed + failed} total`);

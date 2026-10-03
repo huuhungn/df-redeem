@@ -676,6 +676,10 @@
 .df .cost-state.cs-confirmed { border-color: var(--primary-dim); color: var(--primary); }
 .df .cost-state.cs-disputed { border-color: var(--amber); color: var(--amber); }
 .df .cost-state.cs-unconfirmed { opacity: .85; }
+/* HQ's figure stands in only until someone measures the build, so it reads
+ * as a reference: dimmed value, dashed badge, never the confirmed colour. */
+.df .pc-cost.hq .pc-cost-val { color: var(--ink-dim); }
+.df .cost-state.cs-hq { border-style: dashed; }
 /* A disputed card is flagged on its edge too — the badge alone is easy to miss
  * when scanning a grid of twenty cards. */
 .df .pcard.pc-disputed { border-left: 2px solid var(--amber); }

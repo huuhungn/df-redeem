@@ -1265,7 +1265,130 @@ test('HQ review: price is shown for reference only and never becomes a cost', as
   }
   const card = sd.querySelectorAll('.pcard').find((c) => c.textContent.includes(HQ_NEW_A));
   assert(card, 'the imported preset must show in the library grid');
-  assert(!/412/.test(card.textContent), 'the preset card must not show the HQ price as its cost');
+  /* With no measured cost the card shows HQ's figure, but as a labelled
+   * reference: never in the "has a cost" state and never under a cost badge. */
+  const costRow = card.querySelector('.pc-cost');
+  assert(costRow && costRow.classList.contains('hq') && !costRow.classList.contains('has'), 'an unmeasured card shows the HQ price as a reference, not as a cost');
+  assert(/≈ 412\.000/.test(costRow.querySelector('.pc-cost-val').textContent), 'the HQ figure must be shown approximately: ' + costRow.textContent);
+  const badge = costRow.querySelector('.cs-hq');
+  assert(badge && badge.textContent.trim() === 'Giá HQ', 'the HQ figure must carry its own "Giá HQ" badge');
+  assert(/không gửi lên kho chung/.test(badge.getAttribute('title') || ''), 'the badge must say the figure is not shared');
+  assert(!costRow.querySelector('.cs-confirmed, .cs-unconfirmed, .cs-disputed'), 'the HQ figure must not borrow a cost agreement badge');
+});
+
+/* Like hqPanel, plus hqReadPrices (what the worker has stored from HQ visits)
+ * and a reportCost spy, so the card-side contract can be checked end to end. */
+async function hqCardPanel(prices, opts) {
+  const o = opts || {};
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  for (const row of o.presets || []) await v.upsert(Object.assign({ kind: 'preset', author: 'me' }, row));
+  const reads = [];
+  const reports = [];
+  const repaints = [];
+  const sync = {
+    hqReadPrices: () => { reads.push(1); return typeof prices === 'function' ? prices() : Promise.resolve(prices); },
+    reportCost: (code, cost, mode) => { reports.push({ code, cost, mode }); return Promise.resolve({ ok: true, state: 'unconfirmed', cost }); },
+  };
+  const p = sandbox.__createPanel({ version: '3.3.0', target: 'test', vault: v, sync, onRepaint: (name) => repaints.push(name) });
+  await p.go('presets');
+  return { p, v, reads, reports, repaints };
+}
+
+const HQ_OPS = '6JLGT7C02VAL71CR2QP7Q';
+const HQ_WAR = '6K0M7VG08CJQ1634CQ2HM';
+const HQ_STORED = {
+  ok: true,
+  prices: {
+    [HQ_OPS]: { price: 588375, seen_at: '2026-10-02T09:00:00.000Z' },
+    [HQ_WAR]: { price: 300000, seen_at: '2026-10-02T09:00:00.000Z' },
+    'not-a-code': { price: 5, seen_at: '' },
+    ['6JPQ82S03RBMNS7FRL5H4']: { price: -1, seen_at: '' },
+  },
+};
+const cardOf = (sd, code) => sd.querySelectorAll('.pcard').find((c) => c.textContent.includes(code));
+
+test('Preset card: a build with no measured cost shows the stored HQ price as "Giá HQ"', async () => {
+  const h = await hqCardPanel(HQ_STORED, { presets: [{ code: HQ_OPS, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn' }] });
+  const sd = h.p._shadow;
+  await until(() => sd.querySelector('.pc-cost.hq'), 'the stored HQ price must reach the card');
+  assert(h.reads.length >= 1, 'opening Preset must read the stored HQ prices');
+  const row = cardOf(sd, HQ_OPS).querySelector('.pc-cost');
+  assert(/≈ 588\.375/.test(row.textContent), 'the card must show the HQ price: ' + row.textContent);
+  assert(row.querySelector('.cs-hq').textContent.trim() === 'Giá HQ', 'the card must label the figure "Giá HQ"');
+  assert(/02\/10\/2026|2\/10\/2026/.test(row.querySelector('.cs-hq').getAttribute('title') || ''), 'the badge must say when HQ showed that price');
+});
+
+test('Preset card: a measured cost always wins over the HQ price', async () => {
+  const h = await hqCardPanel(HQ_STORED, { presets: [{ code: HQ_OPS, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn', cost: 295426, cost_state: 'confirmed' }] });
+  const sd = h.p._shadow;
+  await until(() => h.reads.length >= 1, 'the HQ prices must be read');
+  await new Promise((r) => setImmediate(r));
+  const row = cardOf(sd, HQ_OPS).querySelector('.pc-cost');
+  assert(row.classList.contains('has') && !row.classList.contains('hq'), 'a measured cost keeps the "has" state');
+  assert(/295\.426/.test(row.textContent) && !/588/.test(row.textContent), 'the measured cost must be shown, not the HQ figure: ' + row.textContent);
+  assert(!row.querySelector('.cs-hq'), 'no "Giá HQ" badge beside a measured cost');
+  assert(!/HQ/.test(row.querySelector('.pc-cost-val').getAttribute('title') || ''), 'a measured cost must not carry the HQ tooltip');
+});
+
+test('Preset card: Warfare builds and junk rows never show an HQ price', async () => {
+  const h = await hqCardPanel(HQ_STORED, { presets: [
+    { code: HQ_WAR, weapon: 'AKM', mode: 'Chiến Trường Toàn Diện' },
+    { code: '6JPQ82S03RBMNS7FRL5H4', weapon: 'Vector', mode: 'Chiến Dịch Sinh Tồn' },
+  ] });
+  const sd = h.p._shadow;
+  await until(() => h.reads.length >= 1, 'the HQ prices must be read');
+  await new Promise((r) => setImmediate(r));
+  assert(!/300\.000/.test(cardOf(sd, HQ_WAR).textContent), 'a Warfare build has no cost row, so no HQ price either');
+  const bad = cardOf(sd, '6JPQ82S03RBMNS7FRL5H4').querySelector('.pc-cost');
+  assert(bad.classList.contains('none') && !bad.querySelector('.cs-hq'), 'a non-positive stored price must be ignored');
+});
+
+test('Preset card: the HQ price never pre-fills the cost editor or gets reported', async () => {
+  const h = await hqCardPanel(HQ_STORED, { presets: [{ code: HQ_OPS, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn' }] });
+  const sd = h.p._shadow;
+  await until(() => sd.querySelector('.pc-cost.hq'), 'the HQ price must render first');
+  sd.querySelector(`[data-act="cost-edit"][data-code="${HQ_OPS}"]`).click();
+  const input = await until(() => sd.querySelector('.pc-costedit .costin'), 'the editor must open');
+  assert(input.value === '', 'the editor must start empty, not with the HQ price: ' + input.value);
+  sd.querySelector('[data-act="cost-cancel"]').click();
+  await until(() => sd.querySelector('.pc-cost.hq'), 'cancelling must bring the HQ reference back');
+  assert(h.reports.length === 0, 'showing an HQ price must never report a cost: ' + JSON.stringify(h.reports));
+  const saved = (await h.v.presets()).find((r) => String(r.code).toUpperCase() === HQ_OPS);
+  assert(!('cost' in saved) && !('cost_state' in saved), 'the HQ price must never be written as a cost');
+});
+
+test('Preset card: a slow or failed HQ price read never blocks or blanks the view', async () => {
+  let release;
+  const h = await hqCardPanel(() => new Promise((res) => { release = res; }), { presets: [{ code: HQ_OPS, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn' }] });
+  const sd = h.p._shadow;
+  /* go() already resolved above while the read is still pending. */
+  assert(cardOf(sd, HQ_OPS).querySelector('.pc-cost.none'), 'the grid paints before the HQ read answers');
+  release(HQ_STORED);
+  await until(() => sd.querySelector('.pc-cost.hq'), 'a late answer repaints the grid');
+  assert(h.repaints.includes('presets'), 'the full-page app must be told to re-clone Preset after a late repaint');
+  release = null;
+  await h.p.go('codes');
+  await h.p.go('presets');
+  await until(() => typeof release === 'function', 'revisiting Preset asks again');
+  release({ ok: false, error: 'Worker không trả lời.' });
+  await new Promise((r) => setImmediate(r));
+  assert(sd.querySelector('.pc-cost.hq'), 'a failed re-read keeps the prices already on screen');
+});
+
+test('Preset card: a late HQ price read does not reset a cost being typed', async () => {
+  let release;
+  const h = await hqCardPanel(() => new Promise((res) => { release = res; }), { presets: [{ code: HQ_OPS, weapon: 'M4A1', mode: 'Chiến Dịch Sinh Tồn' }] });
+  const sd = h.p._shadow;
+  sd.querySelector(`[data-act="cost-edit"][data-code="${HQ_OPS}"]`).click();
+  const input = await until(() => sd.querySelector('.pc-costedit .costin'), 'the editor must open');
+  input.value = '290K';
+  release(HQ_STORED);
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert(sd.querySelector('.pc-costedit .costin') === input && input.value === '290K', 'the open editor must survive the late read');
+  sd.querySelector('[data-act="cost-cancel"]').click();
+  await until(() => sd.querySelector('.pc-cost.hq'), 'the next render picks the HQ price up');
 });
 
 test('HQ review: missing Operations prices point to "Xem thêm" on HQ, and a reload keeps picks', async () => {

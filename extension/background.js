@@ -963,6 +963,9 @@ async function handleSync(op, payload, sender) {
    * settings read. */
   if (op === 'hqFetch') return hqFetch();
   if (op === 'hqPrices') return hqSavePrices(payload, sender);
+  /* Read-only: the cards show the stored HQ price while a build has no
+   * measured cost. Nothing here writes or reaches the network. */
+  if (op === 'hqReadPrices') return { ok: true, prices: await readHqPrices() };
   const svc = service();
   const stored = await svc.getLocal({ [SETTINGS_KEY]: DFRedeemSync.DEFAULT_SETTINGS });
   const current = { ...DFRedeemSync.DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] || {}) };

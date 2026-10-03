@@ -146,6 +146,19 @@ async function workerTests() {
       JSON.stringify(res.prices) === JSON.stringify(want) && Object.keys(want).length === 4 && res.items.every((i) => !('price' in i)),
       JSON.stringify(res.prices));
     check('prices are keyed only by code; nothing else is stored', Object.keys(w.local).every((k) => k === 'df_redeem_hq_prices'), Object.keys(w.local).join());
+    const before = JSON.stringify(w.local);
+    const fetchesBefore = w.fetchCalls.length;
+    const read = await w.send('hqReadPrices');
+    check('hqReadPrices returns the stored prices with when HQ showed them',
+      read.ok === true && Object.keys(read.prices).length === 10
+        && Object.entries(solPrices).every(([c, p]) => read.prices[c] && read.prices[c].price === p && read.prices[c].seen_at),
+      JSON.stringify(read).slice(0, 200));
+    check('hqReadPrices writes nothing and fetches nothing', JSON.stringify(w.local) === before && w.fetchCalls.length === fetchesBefore);
+  }
+  {
+    const w = loadWorker({});
+    const read = await w.send('hqReadPrices');
+    check('hqReadPrices answers an empty store with no prices', read.ok === true && JSON.stringify(read.prices) === '{}', JSON.stringify(read));
   }
 }
 
