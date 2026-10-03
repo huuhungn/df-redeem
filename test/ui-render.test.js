@@ -1136,6 +1136,28 @@ test('preset cards can shrink to their grid track', () => {
     '.pc-code holds an unbreakable 19-digit id and must be allowed to wrap');
 });
 
+test('app.html preset tracks are wide enough to keep the cost row on one line', () => {
+  /* The widest cost row is the 7-digit cap, the "Đang tranh chấp" badge and the
+   * Sửa button: 233px of content inside 22px of card padding and border. With
+   * 230px tracks a 1280px window fit 4 columns of 232px and even a 6-digit row
+   * broke onto 2 lines. Measured in Chrome at 360–1920px with 262px tracks. */
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+  const build = strip(fs.readFileSync(path.join(__dirname, '..', 'build.js'), 'utf8'));
+  const grid = build.match(/#page-view \.pgrid \{ grid-template-columns: repeat\(auto-fill, minmax\(min\((\d+)px, 100%\), 1fr\)\); \}/);
+  assert(grid, '#page-view .pgrid must use minmax(min(<n>px, 100%), 1fr) so one column still fits a phone');
+  assert(Number(grid[1]) >= 262, `#page-view .pgrid tracks of ${grid[1]}px are too narrow for a one-line cost row`);
+
+  /* The button's tighter padding must actually win: .df .act.tiny (0,3,0)
+   * silently overrode the same declaration on .df .pc-cost-edit (0,2,0). */
+  const css = strip(fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'components.css'), 'utf8'));
+  const at = (sel) => css.indexOf(sel + ' {');
+  assert(at('.df .act.pc-cost-edit') > at('.df .act.tiny') && at('.df .act.tiny') !== -1,
+    '.df .act.pc-cost-edit must exist and come after .df .act.tiny to outrank it');
+  const rule = css.slice(at('.df .act.pc-cost-edit'), css.indexOf('}', at('.df .act.pc-cost-edit')));
+  const pad = rule.match(/padding:\s*0\s+(\d+)px/);
+  assert(pad && Number(pad[1]) <= 8, '.pc-cost-edit side padding must stay at 8px or less');
+});
+
 test('high contrast keeps the status dot visible', () => {
   /* forced-colors strips background-color outright, so a dot that is only a
    * coloured background becomes invisible and the row loses its signal. */

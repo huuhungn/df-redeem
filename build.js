@@ -625,7 +625,12 @@ html, body { margin: 0; min-height: 100%; background: var(--void); }
 @media (min-width: 1180px) {
   #page-view .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: var(--gap); align-items: start; }
 }
-#page-view .pgrid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+/* 262px is the narrowest track that keeps the widest cost row on one line: the
+ * 7-digit cap, the widest badge ("Đang tranh chấp") and the Sửa button need
+ * 233px inside the card's 22px of padding and border. At 230px a 1280px window
+ * fit 4 columns of 232px and even a 6-digit row broke in two.
+ * min(…, 100%) keeps one column from overflowing a phone-width page. */
+#page-view .pgrid { grid-template-columns: repeat(auto-fill, minmax(min(262px, 100%), 1fr)); }
 @media (max-width: 880px) {
   .page-shell { grid-template-columns: 1fr; }
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }

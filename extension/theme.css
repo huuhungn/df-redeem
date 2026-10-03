@@ -660,6 +660,10 @@
 /* An absent cost must read as "nobody has measured this yet", not as zero. */
 .df .pc-cost.none .pc-cost-val { color: var(--ink-mute); }
 .df .pc-cost-edit { margin-left: auto; }
+/* Tighter side padding than .act.tiny: the row has to hold a value, a badge and
+ * this button on one line, and the button's text is a single short word. The
+ * .act in the selector is what lets it outrank .df .act.tiny. */
+.df .act.pc-cost-edit { padding: 0 8px; }
 /* Warfare issues its loadouts, so the row states that plainly instead of
  * showing an empty price the player might try to fill in. It is deliberately
  * quieter than a real cost: it is an explanation, not a measurement. */
