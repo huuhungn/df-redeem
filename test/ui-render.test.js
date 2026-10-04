@@ -582,6 +582,26 @@ test('build labels distinguish presets and participate in search', async () => {
   typeQuery('');
 });
 
+test('preset search ignores Vietnamese accents in labels and weapon names', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+  const typeQuery = (value) => {
+    const box = sd.querySelector('.pq');
+    box.value = value;
+    box.dispatchEvent(dom.makeEvent('input', box));
+  };
+  const codes = () => [...sd.querySelectorAll('.pc-code')].map((n) => n.textContent).sort();
+  typeQuery('Nhạc');
+  const accented = codes();
+  assert(accented.length >= 11, 'every accented Nhạc build should match, got ' + accented.length);
+  assert([...sd.querySelectorAll('.pc-label')].some((n) => n.textContent === 'Nhạc'), 'label keeps its accents on the card');
+  typeQuery('nhac');
+  assert(JSON.stringify(codes()) === JSON.stringify(accented), 'typing without accents must find the same Nhạc builds');
+  typeQuery('tay den');
+  assert(codes().includes('6LE92MO0AHP1JR9CHG3OI'), 'Đ must fold to D so "tay den" finds Tay Đen');
+  typeQuery('');
+});
+
 test('share view separates gift codes from presets', async () => {
   await panel.go('share');
   const sd = panel._shadow;

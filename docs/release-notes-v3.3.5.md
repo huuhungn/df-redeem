@@ -4,6 +4,8 @@ Delta Force gift-code and Gunsmith-preset manager. Four delivery shapes from one
 
 v3.3.5 ships 35 new Chiến Dịch (Thoát Hiểm) Gunsmith presets and adds build labels, so several presets for the same weapon are easy to tell apart. The bundled library grows from 21 to 56 presets. Gift codes are unchanged.
 
+This is the first published release since v3.3.3, so it also includes the v3.3.4 changes: read-only HQ price references on Gunsmith cards and single-line Campaign cost rows. v3.3.4 is tagged but has no separate release; see [its notes](https://github.com/huuhungn/df-redeem/blob/v3.3.5/docs/release-notes-v3.3.4.md).
+
 ## New presets
 
 - 35 user-submitted Operations presets across 20 weapons: MK4, AKM, AK-12, AR-57, AS Val, MK47, AUG, CI-19, K416, K437, KC17, M4A1, M7, QBZ95-1, QCQ171, M249, QJB201, SVD, M700 and Thompson.
@@ -11,8 +13,9 @@ v3.3.5 ships 35 new Chiến Dịch (Thoát Hiểm) Gunsmith presets and adds bui
 
 ## Build labels
 
-- A preset can carry an optional build label, such as `Eco`, `Full-burst`, `Hipfire` or `Newbie 2`. It appears as a small chip beside the weapon name and does not change how the weapon is named or grouped.
+- A preset can carry an optional build label, such as `Eco`, `Nhạc`, `Full-burst` or `Newbie 2`. It appears as a small chip beside the weapon name and does not change how the weapon is named or grouped.
 - Preset search matches labels, so typing `Newbie 2` finds that M4A1 build.
+- Preset search ignores case and Vietnamese accents, so `nhac` finds the `Nhạc` builds and `tay den` finds Tay Đen.
 - Labels survive vault storage, CSV/JSON export and import, and the published `data/presets.json`.
 - Short weapon names drop the catalogue class suffix, so `SVD Sniper Rifle`, grouped as a marksman rifle, now reads `SVD`.
 
@@ -22,10 +25,10 @@ v3.3.5 ships 35 new Chiến Dịch (Thoát Hiểm) Gunsmith presets and adds bui
 
 ## How it was verified
 
-- `npm test`: 20 suites, 568 passed. A new preset-batch suite pins every submitted code, weapon and label in the seed and published data, and covers the additive upgrade path.
+- `npm test`: 20 suites, 569 passed. A new preset-batch suite pins every submitted code, weapon and label in the seed and published data, and covers the additive upgrade path.
 - `npm run build`: v3.3.5 generated all committed delivery artifacts; 11 generated scripts parse successfully.
 - `tools/verify-ui.js`: 19/19 live Chrome checks passed on app.html, popup and options, with 56 preset cards rendered.
-- `tools/validate-data.js`: 314 codes, 56 presets, no account-specific data.
+- `tools/validate-data.js`: 324 codes, 56 presets, no account-specific data.
 - `tools/make-public-data.js` regenerates `data/presets.json` with identical rows in the same order.
 - `tools/audit-css.js`: the same five pre-existing unstyled utility classes as v3.3.4; this release adds no new finding.
 - In the loaded extension, **Copy** on a new MK4 preset put exactly `6LFI0L80AHP1JR9CHG3OI` on the clipboard and showed the confirmation toast.
@@ -39,4 +42,4 @@ Userscript: install `df-redeem.user.js` in Tampermonkey. Console: paste `df-rede
 
 Verify downloads against `SHA256SUMS.txt` (`sha256sum -c SHA256SUMS.txt`).
 
-**Full changelog**: https://github.com/huuhungn/df-redeem/compare/v3.3.4...v3.3.5
+**Full changelog**: https://github.com/huuhungn/df-redeem/compare/v3.3.3...v3.3.5

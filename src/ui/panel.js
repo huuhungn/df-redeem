@@ -881,6 +881,16 @@ function createPanel(options) {
   };
   const canonicalMode = (mode) => MODE_ALIASES[String(mode || '').trim()] || String(mode || '').trim() || 'Khác';
 
+  /* Case- and accent-insensitive key for preset search. NFD splits most
+   * Vietnamese marks off their base letter; Đ/đ has no decomposition, so it is
+   * mapped by hand. Spaces and punctuation stay, so substring search still
+   * respects word boundaries the user typed. */
+  const foldSearch = (s) => String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[Đđ]/g, 'D')
+    .toUpperCase();
+
   /* Weapon resolution lives in core so the catalogue is shared with the tests
    * and any other surface; fall back to a pass-through if the bundle predates
    * it, so an older cached core degrades to the previous behaviour rather than
@@ -1256,14 +1266,15 @@ function createPanel(options) {
     const counts = new Map();
     for (const row of all) counts.set(row.meta.cls, (counts.get(row.meta.cls) || 0) + 1);
 
-    const q = presetFilter.q.trim().toUpperCase();
+    const q = foldSearch(presetFilter.q.trim());
     const rows = all.filter(({ preset, meta }) => {
       if (presetFilter.cls !== 'all' && meta.cls !== presetFilter.cls) return false;
       if (!q) return true;
       /* Search covers the code, the resolved name and whatever the submitter
        * typed, so pasting a code from Discord finds it and so does typing the
-       * Vietnamese gun name. */
-      return `${preset.code} ${meta.weapon} ${meta.raw} ${preset.label || ''} ${preset.mode || ''}`.toUpperCase().includes(q);
+       * Vietnamese gun name. Accents are folded on both sides, so "nhac" finds
+       * the "Nhạc" builds and "tay den" finds Tay Đen. */
+      return foldSearch(`${preset.code} ${meta.weapon} ${meta.raw} ${preset.label || ''} ${preset.mode || ''}`).includes(q);
     });
 
     /* Section order follows the in-game Gunsmith class order, not the
