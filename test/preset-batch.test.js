@@ -16,7 +16,7 @@ async function test(name, fn) {
 (async () => {
   await test('submission contains 35 unique valid codes for 20 weapons', () => {
     assert.strictEqual(batch.length, 35);
-    assert.strictEqual(new Set(batch.map((r) => r[2])).size, 35);
+    assert.strictEqual(new Set(batch.map((r) => r[2].toUpperCase())).size, 35);
     assert.strictEqual(new Set(batch.map((r) => r[0])).size, 20);
     for (const [weapon, , code] of batch) {
       assert.strictEqual(Schema.inferPresetFormat(code), 'base32-21');
@@ -25,11 +25,11 @@ async function test(name, fn) {
   });
   for (const [name, doc] of [['seed', seed], ['public data', publicData]]) {
     await test(name + ' includes every submitted mapping without invented verification or prices', () => {
-      const rows = new Map(doc.presets.map((r) => [r.code, r]));
-      assert.strictEqual(rows.size, doc.presets.length, 'no duplicates');
+      const rows = new Map(doc.presets.map((r) => [r.code.toUpperCase(), r]));
+      assert.strictEqual(rows.size, doc.presets.length, 'no duplicate preset identities');
       assert(rows.size >= 56, '21 existing plus 35 new presets');
       for (const [weapon, label, code] of batch) {
-        const row = rows.get(code);
+        const row = rows.get(code.toUpperCase());
         assert(row, 'missing ' + code);
         assert.strictEqual(row.weapon, weapon, code);
         assert.strictEqual(row.label || '', label, code);

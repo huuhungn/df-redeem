@@ -3,7 +3,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
   'use strict';
 
   const DB_NAME = 'df-redeem-vault';
-  const DB_VERSION = 5;
+  const DB_VERSION = 6;
   const STORES = Object.freeze({
     codes: 'codes',
     runs: 'runs',
@@ -33,7 +33,9 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
       .replace(/[\u00A0\s]+/g, '')
       .trim();
-    return clean;
+    /* Gunsmith codes have one case-insensitive identity (as HQ and costs do).
+     * Gift spelling must remain untouched: Garena redemption is case-sensitive. */
+    return kind === 'preset' ? clean.toUpperCase() : clean;
   }
 
   function normalizeTags(value) {
@@ -153,7 +155,10 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
     /* v3 stores the same schema; it triggers Vault.init() to correct exactly the
      * legacy 400069 rows that older builds called `exhausted`.
      * v5 likewise only bumps the version so init() can split the overloaded
-     * `mine` bucket into `mine` + `group_limit`. */
+     * `mine` bucket into `mine` + `group_limit`.
+     * v6 retires every pre-identity build: opening at v6 closes their
+     * connections and their next open fails, so an old tab can no longer
+     * write a lowercase preset beside the canonical one. */
     return newVersion;
   }
 

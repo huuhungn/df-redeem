@@ -1516,7 +1516,25 @@ test('HQ review: toggles drive what is imported and never overwrite a saved code
   assert(!codes.includes(HQ_NEW_A), 'an unpicked code must not be imported');
   const mine = (await h.v.presets()).find((r) => String(r.code).toUpperCase() === HQ_HAVE);
   assert(mine && mine.weapon === 'Bản của tôi' && mine.author === 'me', 'the saved preset must keep its own fields: ' + JSON.stringify(mine));
-  assert(String(mine.code) === HQ_HAVE.toLowerCase(), 'the saved preset must keep its original casing');
+  assert(String(mine.code) === HQ_HAVE, 'the saved preset must use canonical uppercase identity');
+});
+
+test('HQ review: a code saved after the review opened is skipped, not overwritten', async () => {
+  const h = await hqPanel(HQ_REPLY);
+  const sd = h.p._shadow;
+  sd.querySelector('[data-act="hq-import"]').click();
+  h.release();
+  await until(() => sd.querySelector('.hq-row'), 'review must render');
+  /* Another tab saves HQ_NEW_A while the library read stays stale. */
+  await h.v.upsert({ kind: 'preset', code: HQ_NEW_A, weapon: 'Tab khác', mode: 'Chiến Dịch Sinh Tồn', author: 'other-tab' });
+  const byKind = h.v.byKind.bind(h.v);
+  h.v.byKind = async (kind) => (kind === 'preset' ? (await byKind(kind)).filter((r) => r.code !== HQ_NEW_A) : byKind(kind));
+  sd.querySelector('[data-act="hq-commit"]').click();
+  await until(() => !sd.querySelector('.hq-review'), 'import must close the review');
+  h.v.byKind = byKind;
+  const saved = (await h.v.presets()).filter((r) => r.code === HQ_NEW_A);
+  assert(saved.length === 1, 'one identity, got ' + saved.length);
+  assert(saved[0].weapon === 'Tab khác' && saved[0].author === 'other-tab', 'the other tab’s save must survive: ' + JSON.stringify(saved[0]));
 });
 
 test('HQ review: a late reply after closing or leaving the tab is dropped', async () => {

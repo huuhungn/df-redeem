@@ -15,6 +15,10 @@ const seed = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/data/seed.json'), '
 
 /* Day precision is enough for "is this stale?" and leaks nothing about when a
  * particular person was at their desk. */
+const presetIdentity = (value) => String(value || '').normalize('NFKC')
+  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+  .replace(/[\u00A0\s]+/g, '').toUpperCase();
+
 const day = (value) => {
   const t = Date.parse(value || '');
   return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : null;
@@ -52,10 +56,15 @@ const codes = (seed.codes || [])
     }))
   .sort((a, b) => a.code.localeCompare(b.code));
 
-const presets = (seed.presets || [])
-  .filter((row) => row && row.code)
-  .map((row) => ({
-    code: String(row.code).trim(),
+const presetSource = (seed.presets || []).filter((row) => row && row.code);
+const presetIds = new Set();
+for (const row of presetSource) {
+  const id = presetIdentity(row.code);
+  if (presetIds.has(id)) throw new Error(`duplicate preset identity in seed: ${id}`);
+  presetIds.add(id);
+}
+const presets = presetSource.map((row) => ({
+    code: presetIdentity(row.code),
     weapon: String(row.weapon || '').trim(),
     mode: String(row.mode || '').trim(),
     ...(String(row.label || '').trim() ? { label: String(row.label).trim() } : {}),

@@ -60,7 +60,18 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     const data = typeof input === 'string' ? JSON.parse(input) : clone(input);
     if (Array.isArray(data)) return data;
     if (!data || typeof data !== 'object') throw new TypeError('JSON import must be an array or object');
-    return [...(Array.isArray(data.codes) ? data.codes : []), ...(Array.isArray(data.presets) ? data.presets : [])];
+    /* Backups contain code and detail halves for the same preset. Join them
+     * before duplicate checks; the code half must not suppress its details. */
+    const details = new Map((Array.isArray(data.presets) ? data.presets : [])
+      .map((row) => [Schema.normalizeCode(row.code, 'preset'), row]));
+    const records = (Array.isArray(data.codes) ? data.codes : []).map((row) => {
+      if (row.kind !== 'preset') return row;
+      const identity = Schema.normalizeCode(row.code, 'preset');
+      const extra = details.get(identity);
+      details.delete(identity);
+      return { ...row, ...extra, kind: 'preset' };
+    });
+    return [...records, ...[...details.values()].map((row) => ({ ...row, kind: 'preset' }))];
   }
 
   function parsePresetLine(line, defaults) {
@@ -155,6 +166,130 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     });
   }
 
+  /* Redemption history is one observation: status, timestamps, counters and the
+   * Garena reply must come from the same row, never spliced across variants. */
+  const HISTORY_FIELDS = ['status', 'last_tried', 'attempt_count', 'result_msg', 'err_code', 'variant_used', 'shareable'];
+  const isEmpty = (value) => value == null || value === '' || (Array.isArray(value) && !value.length);
+  const isPresetInput = (raw) => Boolean(raw && (raw.kind === 'preset' || raw.weapon || raw.mode || raw.format));
+  const BACKUP_KEY = 'preset_identity_backup_v1';
+
+  /* Repair only preset identities. Archive every original row before merging,
+   * and list each conflicting value with its source spelling, so no user data
+   * is silently discarded. The visible row stays coherent: history comes whole
+   * from the variant with the most evidence, cost travels with its agreement
+   * state, and only fields absent from the preferred row are filled in.
+   * This runs on every open (not once behind a marker) so a row written by an
+   * older build is folded back in on the next start. */
+  function presetRepairPlan(codes, presets, meta, now) {
+    const codeRows = codes.filter((row) => row.kind === 'preset');
+    const groups = new Map();
+    for (const [store, rows] of [[STORES.codes, codeRows], [STORES.presets, presets]]) {
+      for (const row of rows) {
+        const id = Schema.normalizeCode(row.code, 'preset');
+        if (!Schema.inferPresetFormat(id)) continue;
+        if (!groups.has(id)) groups.set(id, { codes: [], presets: [] });
+        groups.get(id)[store].push(row);
+      }
+    }
+    const affected = [...groups.entries()].filter(([id, g]) =>
+      g.codes.length !== 1 || g.presets.length !== 1 ||
+      g.codes.some((r) => r.code !== id || r.key !== `preset:${id}`) ||
+      g.presets.some((r) => r.code !== id));
+    if (!affected.length) return [];
+
+    const canonicalFirst = (id) => (a, b) => Number(b.code === id) - Number(a.code === id);
+    const filled = (row) => Object.values(row).filter((value) => !isEmpty(value)).length;
+    /* Fill only fields the preferred row lacks. Cost and its agreement state are
+     * one fact, so they are taken together from the first row that has a cost. */
+    const fill = (ordered, skip) => {
+      const out = {};
+      for (const row of ordered) {
+        for (const [key, value] of Object.entries(row)) {
+          if (skip.includes(key)) continue;
+          if (isEmpty(out[key])) out[key] = clone(value);
+        }
+      }
+      return out;
+    };
+    const evidence = (row) => [
+      Number(row.attempt_count) || 0,
+      row.status && row.status !== 'untried' ? 1 : 0,
+      String(row.last_tried || ''),
+    ];
+    const moreEvidence = (id) => (a, b) => {
+      const x = evidence(a);
+      const y = evidence(b);
+      for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return x[i] < y[i] ? 1 : -1;
+      return canonicalFirst(id)(a, b);
+    };
+    const conflictsOf = (id, group) => {
+      const out = [];
+      const fields = new Set();
+      for (const row of [...group.codes, ...group.presets]) Object.keys(row).forEach((key) => fields.add(key));
+      for (const field of fields) {
+        if (['key', 'code', 'first_seen', 'tags', 'format'].includes(field)) continue;
+        const values = [];
+        for (const [store, rows] of [[STORES.codes, group.codes], [STORES.presets, group.presets]]) {
+          for (const row of rows) {
+            if (!isEmpty(row[field])) values.push({ store, code: row.code, value: clone(row[field]) });
+          }
+        }
+        if (new Set(values.map((v) => JSON.stringify(v.value))).size > 1) out.push({ id, field, values });
+      }
+      return out;
+    };
+
+    const changes = [];
+    const conflicts = [];
+    for (const [id, group] of affected) {
+      for (const r of group.codes) changes.push({ store: STORES.codes, deleteKey: r.key });
+      for (const r of group.presets) changes.push({ store: STORES.presets, deleteKey: r.code });
+      conflicts.push(...conflictsOf(id, group));
+
+      const detailRows = [...group.presets].sort((a, b) => canonicalFirst(id)(a, b) || filled(b) - filled(a));
+      const details = fill(detailRows, ['cost', 'cost_state', 'verified']);
+      const priced = detailRows.find((row) => Number(row.cost) > 0);
+      if (priced) { details.cost = priced.cost; details.cost_state = priced.cost_state; }
+      details.verified = detailRows.some((row) => row.verified === true);
+
+      const historyRows = [...group.codes].sort(moreEvidence(id));
+      const info = fill(historyRows, [...HISTORY_FIELDS, 'tags']);
+      if (historyRows.length) for (const field of HISTORY_FIELDS) info[field] = clone(historyRows[0][field]);
+      info.tags = Schema.normalizeTags([].concat(...group.codes.map((row) => row.tags || [])));
+
+      const first = [...group.codes, ...group.presets].map((r) => r.first_seen).filter(Boolean).sort()[0];
+      const preset = Schema.presetRecord({ ...info, ...details, code: id, first_seen: first }, now);
+      const code = Schema.codeRecord({ ...info, code: id, kind: 'preset',
+        item_hint: info.item_hint || preset.weapon, first_seen: first }, now);
+      changes.push({ store: STORES.presets, value: preset }, { store: STORES.codes, value: code });
+    }
+
+    /* Append to the archive: a later repair (for a row written by an older
+     * build) must never overwrite what an earlier repair preserved. */
+    const ids = new Set(affected.map(([id]) => id));
+    const prior = meta.find((row) => row.key === BACKUP_KEY) || {};
+    const merge = (left, right) => {
+      const known = new Set();
+      return [...(left || []), ...right].filter((row) => {
+        const key = JSON.stringify(row);
+        if (known.has(key)) return false;
+        known.add(key);
+        return true;
+      });
+    };
+    const archived = (rows) => rows.filter((row) => ids.has(Schema.normalizeCode(row.code, 'preset')));
+    changes.unshift({ store: STORES.meta, value: {
+      key: BACKUP_KEY,
+      codes: merge(prior.codes, archived(codeRows)),
+      presets: merge(prior.presets, archived(presets)),
+      conflicts: merge(prior.conflicts, conflicts.map((c) => ({ ...c, saved_at: now }))),
+      saved_at: prior.saved_at || now,
+      updated_at: now,
+    } });
+    changes.push({ store: STORES.meta, value: { key: 'preset_identity_v1', repaired: affected.length, migrated_at: now } });
+    return changes;
+  }
+
   class IndexedDBAdapter {
     constructor(options) {
       const opts = options || {};
@@ -177,6 +312,54 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       this.db = await requestPromise(request);
       this.db.onversionchange = () => { this.db.close(); this.db = null; };
       return this;
+    }
+
+    /* Keep both preset halves and the existence check in one transaction:
+     * two tabs importing the same code must not both claim a new insert. */
+    async writePreset(code, update) {
+      await this.open();
+      const tx = this.db.transaction([STORES.codes, STORES.presets], 'readwrite');
+      const done = transactionPromise(tx);
+      let result;
+      let failure;
+      const a = tx.objectStore(STORES.codes).get(`preset:${code}`);
+      const b = tx.objectStore(STORES.presets).get(code);
+      let pending = 2;
+      const ready = () => {
+        if (--pending) return;
+        try {
+          const next = update(a.result, b.result);
+          result = next.result;
+          if (next.code) tx.objectStore(STORES.codes).put(clone(next.code));
+          if (next.preset) tx.objectStore(STORES.presets).put(clone(next.preset));
+        } catch (error) { failure = error; tx.abort(); }
+      };
+      a.onsuccess = ready;
+      b.onsuccess = ready;
+      await done.catch((error) => { throw failure || error; });
+      return result;
+    }
+
+    async repairPresetIdentities(now) {
+      await this.open();
+      const tx = this.db.transaction([STORES.codes, STORES.presets, STORES.meta], 'readwrite');
+      const done = transactionPromise(tx);
+      const names = [STORES.codes, STORES.presets, STORES.meta];
+      const requests = names.map((name) => tx.objectStore(name).getAll());
+      let pending = requests.length;
+      let failure;
+      for (const request of requests) request.onsuccess = () => {
+        if (--pending) return;
+        try {
+          const changes = presetRepairPlan(...requests.map((r) => r.result), now);
+          for (const change of changes) {
+            const store = tx.objectStore(change.store);
+            if ('deleteKey' in change) store.delete(change.deleteKey);
+            else store.put(clone(change.value));
+          }
+        } catch (error) { failure = error; tx.abort(); }
+      };
+      await done.catch((error) => { throw failure || error; });
     }
 
     async get(store, key) {
@@ -231,6 +414,24 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       this.counters.set(store, id);
       return id;
     }
+    async writePreset(code, update) {
+      // No await between read and write: mirror one IndexedDB transaction.
+      const next = update(clone(this.stores.get(STORES.codes).get(`preset:${code}`)),
+        clone(this.stores.get(STORES.presets).get(code)));
+      if (next.code) this.stores.get(STORES.codes).set(next.code.key, clone(next.code));
+      if (next.preset) this.stores.get(STORES.presets).set(next.preset.code, clone(next.preset));
+      return next.result;
+    }
+    async repairPresetIdentities(now) {
+      const rows = [STORES.codes, STORES.presets, STORES.meta]
+        .map((name) => [...this.stores.get(name).values()].map(clone));
+      const changes = presetRepairPlan(...rows, now);
+      for (const change of changes) {
+        const store = this.stores.get(change.store);
+        if ('deleteKey' in change) store.delete(change.deleteKey);
+        else store.set(this.key(change.store, change.value), clone(change.value));
+      }
+    }
     async get(store, key) { return clone(this.stores.get(store).get(key)); }
     async getAll(store) { return [...this.stores.get(store).values()].map(clone); }
     async put(store, value) {
@@ -256,6 +457,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
 
     async init() {
       await this.adapter.open();
+      await this.adapter.repairPresetIdentities(this.clock());
       await this.migrateLegacyUsedStatus();
       await this.migrateCasingAmbiguousInvalids();
       await this.migrateGroupLimitOutOfMine();
@@ -357,18 +559,21 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       return result;
     }
 
-    async upsert(raw) {
+    async upsert(raw, options) {
       const now = this.clock();
-      const kind = raw.kind === 'preset' || raw.weapon || raw.mode || raw.format ? 'preset' : 'giftcode';
+      const kind = isPresetInput(raw) ? 'preset' : 'giftcode';
       if (kind === 'preset') {
-        const preset = Schema.presetRecord({ ...raw, kind }, now);
-        const key = `preset:${preset.code}`;
-        const existing = await this.adapter.get(STORES.codes, key);
-        const code = Schema.codeRecord({ ...existing, ...raw, code: preset.code, kind: 'preset', item_hint: raw.item_hint || preset.weapon }, now);
-        code.first_seen = existing && existing.first_seen ? existing.first_seen : code.first_seen;
-        await this.adapter.put(STORES.presets, preset);
-        await this.adapter.put(STORES.codes, code);
-        return { record: code, inserted: !existing };
+        const identity = Schema.normalizeCode(raw.code, 'preset');
+        return this.adapter.writePreset(identity, (existing, details) => {
+          if (options && options.insertOnly && (existing || details)) {
+            return { result: { record: existing || details, inserted: false, skipped: true } };
+          }
+          const first = (existing && existing.first_seen) || (details && details.first_seen) || raw.first_seen;
+          const preset = Schema.presetRecord({ ...details, ...raw, kind, first_seen: first }, now);
+          const code = Schema.codeRecord({ ...existing, ...raw, code: preset.code, kind: 'preset',
+            item_hint: raw.item_hint || preset.weapon, first_seen: first }, now);
+          return { code, preset, result: { record: code, inserted: !existing && !details } };
+        });
       }
       const normalized = Schema.codeRecord({ ...raw, kind: 'giftcode' }, now);
       const existing = await this.adapter.get(STORES.codes, normalized.key);
@@ -394,14 +599,35 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     }
 
     async importRecords(records) {
+      /* All or nothing: validate every row before the first write, so one bad
+       * line in a CSV or backup cannot leave the earlier lines half-imported. */
+      const rows = Array.isArray(records) ? records : [];
+      const errors = [];
+      rows.forEach((record, index) => {
+        try {
+          if (!record || typeof record !== 'object') throw new TypeError('Row is not an object');
+          if (isPresetInput(record)) Schema.presetRecord({ ...record, kind: 'preset' }, this.clock());
+          else Schema.codeRecord({ ...record, kind: 'giftcode' }, this.clock());
+        } catch (error) {
+          errors.push(`#${index + 1}: ${String((error && error.message) || error)}`);
+        }
+      });
+      if (errors.length) {
+        const error = new TypeError(`Import rejected, nothing was saved (${errors.length} invalid row(s)): ${errors.slice(0, 3).join('; ')}`);
+        error.invalidRows = errors;
+        throw error;
+      }
       let imported = 0;
       let updated = 0;
-      for (const record of records) {
-        const result = await this.upsert(record);
-        if (result.inserted) imported += 1;
+      let skipped = 0;
+      for (const record of rows) {
+        // Imports add new presets; editing an existing build is explicit upsert.
+        const result = await this.upsert(record, isPresetInput(record) ? { insertOnly: true } : undefined);
+        if (result.skipped) skipped += 1;
+        else if (result.inserted) imported += 1;
         else updated += 1;
       }
-      return { imported, updated, total: records.length };
+      return { imported, updated, skipped, total: rows.length };
     }
 
     async importPaste(text, options) {
@@ -411,7 +637,34 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       return { ...result, invalid: parsed.invalid, blocks: parsed.blocks };
     }
     async importCSV(text) { return this.importRecords(parseCSV(text)); }
-    async importJSON(value) { return this.importRecords(parseJSON(value)); }
+    async importJSON(value) {
+      const data = typeof value === 'string' ? JSON.parse(value) : value;
+      const result = await this.importRecords(parseJSON(data));
+      /* A backup carries the repair archive too; append it so restoring on a
+       * new machine keeps every merged-away variant recoverable. */
+      const archive = data && !Array.isArray(data) && data.preset_archive;
+      if (archive && typeof archive === 'object') {
+        const prior = (await this.adapter.get(STORES.meta, BACKUP_KEY)) || {};
+        const merge = (left, right) => {
+          const known = new Set();
+          return [...(left || []), ...(Array.isArray(right) ? right : [])].filter((row) => {
+            const key = JSON.stringify(row);
+            if (known.has(key)) return false;
+            known.add(key);
+            return true;
+          });
+        };
+        await this.adapter.put(STORES.meta, {
+          key: BACKUP_KEY,
+          codes: merge(prior.codes, archive.codes),
+          presets: merge(prior.presets, archive.presets),
+          conflicts: merge(prior.conflicts, archive.conflicts),
+          saved_at: prior.saved_at || archive.saved_at || this.clock(),
+          updated_at: this.clock(),
+        });
+      }
+      return result;
+    }
 
     async all() { return (await this.adapter.getAll(STORES.codes)).sort((a, b) => a.code.localeCompare(b.code)); }
     async byStatus(value) { return (await this.all()).filter((row) => row.status === value); }
@@ -457,7 +710,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     async shareableList() { return (await this.all()).filter((row) => row.shareable); }
 
     async exportCSV() {
-      const columns = ['code', 'kind', 'status', 'family', 'group', 'source', 'item_hint', 'first_seen', 'last_tried', 'attempt_count', 'result_msg', 'err_code', 'variant_used', 'shareable', 'notes', 'tags', 'weapon', 'mode', 'label', 'author', 'format', 'verified'];
+      const columns = ['code', 'kind', 'status', 'family', 'group', 'source', 'item_hint', 'first_seen', 'last_tried', 'attempt_count', 'result_msg', 'err_code', 'variant_used', 'shareable', 'notes', 'tags', 'weapon', 'mode', 'label', 'author', 'format', 'verified', 'cost', 'cost_state'];
       const presets = new Map((await this.adapter.getAll(STORES.presets)).map((row) => [row.code, row]));
       const lines = [columns.join(',')];
       for (const row of await this.all()) {
@@ -473,7 +726,19 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
         exported_at: this.clock(),
         codes: (await this.all()).map(Schema.publicRecord),
         presets: (await this.adapter.getAll(STORES.presets)).map(Schema.publicRecord),
+        ...(await this.presetArchive()),
       }, null, 2);
+    }
+    /* Rows merged away by the identity repair, kept so a backup can recover them. */
+    async presetArchive() {
+      const backup = await this.adapter.get(STORES.meta, BACKUP_KEY);
+      if (!backup) return {};
+      return { preset_archive: {
+        codes: (backup.codes || []).map(Schema.publicRecord),
+        presets: (backup.presets || []).map(Schema.publicRecord),
+        conflicts: backup.conflicts || [],
+        saved_at: backup.saved_at || '',
+      } };
     }
     async exportShareList() { return (await this.shareableList()).map((row) => row.code).join('\n'); }
 

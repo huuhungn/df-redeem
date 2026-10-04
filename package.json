@@ -1,6 +1,6 @@
 {
   "name": "df-redeem",
-  "version": "3.3.5",
+  "version": "3.3.6",
   "private": true,
   "description": "Delta Force bulk giftcode redeemer — build scripts and test harness.",
   "scripts": {

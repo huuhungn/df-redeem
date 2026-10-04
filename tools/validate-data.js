@@ -13,6 +13,9 @@ const ROOT = __dirname.replace(/[\\/]tools$/, '');
 const problems = [];
 const CODE_RE = /^[A-Za-z0-9]{6,32}$/;
 const PRESET_RE = /^[A-Z0-9]{10,40}$/i;
+const presetIdentity = (value) => String(value || '').normalize('NFKC')
+  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+  .replace(/[\u00A0\s]+/g, '').toUpperCase();
 const VALID_STATUS = new Set(['success', 'expired', 'exhausted', 'gift_bug', 'untried']);
 const { PROBE_CODES } = require('./probe-tokens.js');
 
@@ -106,9 +109,10 @@ if (presetsDoc) {
     for (const [index, row] of presets.entries()) {
       const where = `data/presets.json[${index}]`;
       const code = String(row && row.code || '');
+      const identity = presetIdentity(code);
       if (!PRESET_RE.test(code)) problems.push(`${where}: bad preset code ${JSON.stringify(code)}`);
-      if (seen.has(code)) problems.push(`${where}: duplicate preset ${code}`);
-      seen.add(code);
+      if (seen.has(identity)) problems.push(`${where}: duplicate preset identity ${identity}`);
+      seen.add(identity);
       if (!String(row && row.weapon || '').trim()) problems.push(`${where}: ${code} has no weapon`);
     }
   }

@@ -60,12 +60,19 @@ jobs:
 
       - name: Append the preset
         id: add
+        # Parsed values travel as env vars and are expanded quoted: an Actions
+        # `${{ }}` inlined into a script is spliced in before bash parses it.
+        env:
+          PRESET_CODE: ${{ steps.parse.outputs.code }}
+          PRESET_WEAPON: ${{ steps.parse.outputs.weapon }}
+          PRESET_MODE: ${{ steps.parse.outputs.mode }}
+          PRESET_CREDIT: ${{ steps.parse.outputs.credit }}
         run: |
           node tools/add-preset.js \
-            --code "${{ steps.parse.outputs.code }}" \
-            --weapon "${{ steps.parse.outputs.weapon }}" \
-            --mode "${{ steps.parse.outputs.mode }}" \
-            --credit "${{ steps.parse.outputs.credit }}" | tee add.log
+            --code "$PRESET_CODE" \
+            --weapon "$PRESET_WEAPON" \
+            --mode "$PRESET_MODE" \
+            --credit "$PRESET_CREDIT" | tee add.log
           grep -q 'CHANGED=true' add.log && echo "changed=true" >> "$GITHUB_OUTPUT" || echo "changed=false" >> "$GITHUB_OUTPUT"
           rm -f add.log
 

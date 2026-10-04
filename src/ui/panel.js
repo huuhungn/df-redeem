@@ -1169,8 +1169,11 @@ function createPanel(options) {
     for (const item of rows) {
       if (have.has(item.code)) { skipped += 1; continue; }
       try {
-        const res = await vault.upsert(hqPresetRow(item));
-        if (res && res.inserted) added += 1;
+        /* Insert-only, checked inside the write transaction: a sync or another
+         * tab that saved this code after `have` was read must not be overwritten. */
+        const res = await vault.upsert(hqPresetRow(item), { insertOnly: true });
+        if (res && res.skipped) skipped += 1;
+        else if (res && res.inserted) added += 1;
       } catch (error) {
         failed.push(item.code + ': ' + String((error && error.message) || error));
       }
