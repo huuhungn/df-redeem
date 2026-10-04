@@ -111,6 +111,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       author: text(row.author),
       format,
       verified: Boolean(row.verified),
+      ...(text(row.label).trim() ? { label: text(row.label).trim() } : {}),
       /* Equipment cost is optional and community-measured, so it is carried only
        * when present and always with its agreement state. Writing a 0 here would
        * make an unpriced build look free; omitting the key lets the UI say "no
@@ -525,7 +526,23 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
        * callers rarely pass seedVersion, so using it here meant a shipped seed
        * bump never reached an existing install. */
       const target = Number(seed.version || this.seedVersion);
-      if (marker && Number(marker.value) >= target) return { imported: 0, skipped: true };
+      if (marker && Number(marker.value) >= target) {
+        /* A preset-only addition must not replay gift verdict migrations or
+         * overwrite a player's build metadata and measured prices. Backfill
+         * only identities absent from both stores; repeat opens are no-ops. */
+        const known = new Set((await this.adapter.getAll(STORES.codes))
+          .filter((row) => row.kind === 'preset').map((row) => row.code));
+        for (const row of await this.adapter.getAll(STORES.presets)) known.add(row.code);
+        const missing = [];
+        for (const row of seed.presets || []) {
+          const code = Schema.normalizeCode(row.code, 'preset');
+          if (known.has(code)) continue;
+          known.add(code);
+          missing.push({ ...row, kind: 'preset' });
+        }
+        if (!missing.length) return { imported: 0, skipped: true };
+        return this.importRecords(missing);
+      }
       const result = await this.importJSON(seed);
       await this.adapter.put(STORES.meta, { key: 'seed_version', value: target, imported_at: this.clock() });
       return result;
@@ -605,6 +622,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
           author: extra.author || '',
           format: extra.format || '',
           verified: extra.verified === true,
+          ...(extra.label ? { label: extra.label } : {}),
           /* Equipment cost lives on the preset half of the join, so carry it
            * through explicitly — a spread of `row` alone would silently drop it
            * and the UI would show "—" for every seeded cost. */
@@ -630,7 +648,7 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
     async shareableList() { return (await this.all()).filter((row) => row.shareable); }
 
     async exportCSV() {
-      const columns = ['code', 'kind', 'status', 'family', 'group', 'source', 'item_hint', 'first_seen', 'last_tried', 'attempt_count', 'result_msg', 'err_code', 'variant_used', 'shareable', 'notes', 'tags', 'weapon', 'mode', 'author', 'format', 'verified'];
+      const columns = ['code', 'kind', 'status', 'family', 'group', 'source', 'item_hint', 'first_seen', 'last_tried', 'attempt_count', 'result_msg', 'err_code', 'variant_used', 'shareable', 'notes', 'tags', 'weapon', 'mode', 'label', 'author', 'format', 'verified'];
       const presets = new Map((await this.adapter.getAll(STORES.presets)).map((row) => [row.code, row]));
       const lines = [columns.join(',')];
       for (const row of await this.all()) {

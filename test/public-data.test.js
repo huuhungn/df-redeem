@@ -37,6 +37,15 @@ const check = (name, ok, detail) => {
     Object.values(doc.counts || {}).reduce((sum, count) => sum + Number(count || 0), 0) === rows.length,
     JSON.stringify(doc.counts));
 
+  const generatedPresets = JSON.parse(fs.readFileSync(PRESETS_FILE, 'utf8')).presets;
+  const batch = require('./fixtures/presets-20261004.json');
+  check('public generation preserves submitted build labels and unverified state',
+    batch.every(([weapon, label, code]) => {
+      const row = generatedPresets.find((p) => p.code === code);
+      return row && row.weapon === weapon && (row.label || '') === label
+        && row.verified === false && row.author === 'bundled' && !('cost' in row);
+    }));
+
   /* The generator projects the local seed, but data/codes.json is co-owned with
    * tools/merge-pending.js, which folds in community reports and raises
    * `confirmations` past 1. Running the generator bare once silently deleted 35

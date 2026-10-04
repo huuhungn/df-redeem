@@ -899,9 +899,12 @@ function createPanel(options) {
    * search (which matches meta.weapon, not this display string). */
   const shortWeapon = (meta) => {
     const name = String((meta && meta.weapon) || '');
-    const en = meta && meta.clsEn;
-    if (!en || !name.endsWith(' ' + en)) return name;
-    return name.slice(0, -(en.length + 1)) || name;
+    if (!meta || !meta.canonical) return name;
+    /* SVD is grouped as a marksman rifle but its catalogue name ends in
+     * Sniper Rifle. Strip a known suffix, not only the resolved class label. */
+    const classes = Weapons ? Weapons.WEAPON_CLASSES : [];
+    const suffix = classes.find((c) => name.endsWith(' ' + c.en));
+    return suffix ? (name.slice(0, -(suffix.en.length + 1)) || name) : name;
   };
 
   /* Two modes, two very different meanings for the same code: Operations
@@ -1260,7 +1263,7 @@ function createPanel(options) {
       /* Search covers the code, the resolved name and whatever the submitter
        * typed, so pasting a code from Discord finds it and so does typing the
        * Vietnamese gun name. */
-      return `${preset.code} ${meta.weapon} ${meta.raw} ${preset.mode || ''}`.toUpperCase().includes(q);
+      return `${preset.code} ${meta.weapon} ${meta.raw} ${preset.label || ''} ${preset.mode || ''}`.toUpperCase().includes(q);
     });
 
     /* Section order follows the in-game Gunsmith class order, not the
@@ -1294,7 +1297,7 @@ function createPanel(options) {
       </div>
 
       <div class="filters two pfilters">
-        <input class="pq" placeholder="Tìm mã, tên súng, chế độ…" value="${esc(presetFilter.q)}" aria-label="Tìm preset">
+        <input class="pq" placeholder="Tìm mã, tên súng, build, chế độ…" value="${esc(presetFilter.q)}" aria-label="Tìm preset">
         ${presetFilter.q || presetFilter.cls !== 'all' ? '<button class="act tiny ghost" data-act="pclear">Xoá lọc</button>' : ''}
         ${opts.sync && typeof opts.sync.hqFetch === 'function'
           ? `<button class="act tiny hq-open" data-act="hq-import" aria-expanded="${hqReview ? 'true' : 'false'}"
@@ -1316,6 +1319,7 @@ function createPanel(options) {
           return `<div class="pcard${cost.state === 'disputed' ? ' pc-disputed' : ''}">
           <div class="pc-hd">
             <b${shortWeapon(meta) !== meta.weapon ? ` title="${esc(meta.weapon)}"` : ''}>${esc(shortWeapon(meta))}</b>
+            ${preset.label ? `<span class="pc-label" title="${esc(preset.label)}">${esc(preset.label)}</span>` : ''}
             ${preset.verified ? '<span class="tag ok" title="Đã kiểm tra">✓</span>' : ''}
           </div>
           ${meta.raw ? `<div class="pc-raw muted" title="Người gửi ghi: ${esc(meta.raw)}">ghi: ${esc(meta.raw)}</div>` : ''}
@@ -1866,7 +1870,7 @@ function createPanel(options) {
     }
     if (act === 'share-csv-preset') {
       return download('code-sung-op.csv',
-        csvOf(cache.presets, ['code', 'weapon', 'mode', 'format', 'source']),
+        csvOf(cache.presets, ['code', 'weapon', 'mode', 'label', 'format', 'source']),
         'text/csv;charset=utf-8');
     }
     if (act === 'share-both') {

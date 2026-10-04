@@ -58,6 +58,7 @@ const presets = (seed.presets || [])
     code: String(row.code).trim(),
     weapon: String(row.weapon || '').trim(),
     mode: String(row.mode || '').trim(),
+    ...(String(row.label || '').trim() ? { label: String(row.label).trim() } : {}),
     /* Credit is kept when it points at a public handle; a bare "user" is the
      * local operator and becomes "bundled" so the file says nothing about them. */
     author: /^user$/i.test(String(row.author || '')) ? 'bundled' : String(row.author || '').trim(),
@@ -89,7 +90,7 @@ const codesDoc = {
 const presetsDoc = {
   version: 3,
   updated_at: stamp,
-  note: 'Gunsmith presets. Added only through the approved-preset issue form — never automatically.',
+  note: 'Gunsmith presets. User-submitted batch entries remain unverified until approved through the preset review path.',
   presets,
 };
 

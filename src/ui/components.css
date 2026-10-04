@@ -212,6 +212,11 @@
 .df .pcard:hover { border-color: var(--line); }
 .df .pc-hd { display: flex; align-items: center; gap: 7px; }
 .df .pc-hd b { flex: 1; font-size: 12px; }
+.df .pc-label {
+  flex: 0 1 auto; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 1px 5px; border: 1px solid var(--line-soft); border-radius: 4px;
+  color: var(--ink-dim); font-size: 10px; font-weight: 500;
+}
 
 /* Preset cards carry four lines of unequal importance: gun name, the raw string
  * the submitter typed (only when it differs), the code, and the mode. The code

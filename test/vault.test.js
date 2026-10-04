@@ -89,6 +89,22 @@ test('recordAttempt restores mixed-case spelling after legacy uppercase invalid 
   assert.strictEqual(row.status, 'mine');
 });
 
+test('preset labels survive storage and JSON backup without changing weapon identity', async () => {
+  const row = { code: '6LFI0L80AHP1JR9CHG3OI', weapon: 'MK4 Submachine Gun',
+    mode: 'Chiến Dịch (Thoát Hiểm)', label: 'Eco-burst', verified: false };
+  const vault = await new Vault({ adapter: new MemoryAdapter() }).init();
+  await vault.upsert(row);
+  const saved = (await vault.presets())[0];
+  assert.strictEqual(saved.label, row.label);
+  assert.strictEqual(saved.weapon, row.weapon);
+  assert.strictEqual(saved.verified, false);
+  assert(!('cost' in saved), 'an unknown price must not become zero');
+  const restored = await new Vault({ adapter: new MemoryAdapter() }).init();
+  await restored.importJSON(await vault.exportJSON());
+  assert.strictEqual((await restored.presets())[0].label, row.label);
+  assert(!('label' in Schema.presetRecord({ ...row, label: '' })), 'old unlabeled presets remain sparse');
+});
+
 test('status, kind, family, search and stats queries work', async () => {
     const vault = new Vault({ adapter: new MemoryAdapter() });
     await vault.init();

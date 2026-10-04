@@ -562,6 +562,26 @@ test('preset search matches code, resolved name and submitted text', async () =>
   assert(sd.querySelector('.empty'), 'empty search needs an empty state');
 });
 
+test('build labels distinguish presets and participate in search', async () => {
+  await panel.go('presets');
+  const sd = panel._shadow;
+  const typeQuery = (value) => {
+    const box = sd.querySelector('.pq');
+    box.value = value;
+    box.dispatchEvent(dom.makeEvent('input', box));
+  };
+  typeQuery('6LFI0L80AHP1JR9CHG3OI');
+  const card = sd.querySelector('.pcard');
+  assert(card && card.querySelector('.pc-label'), 'MK4 needs a build label');
+  assert(card.querySelector('.pc-label').textContent === 'Eco-burst', 'keep the submitted build label');
+  assert(card.querySelector('.pc-hd b').textContent === 'MK4', 'label must not pollute weapon identity');
+  assert(!card.querySelector('.tag.ok'), 'unverified submitted codes must not get a checkmark');
+  typeQuery('Newbie 2');
+  assert(sd.querySelectorAll('.pcard').length === 1, 'label search should select one build');
+  assert(sd.querySelector('.pc-code').textContent === '6LFHVRK0AHP1JR9CHG3OI', 'label must match the correct code');
+  typeQuery('');
+});
+
 test('share view separates gift codes from presets', async () => {
   await panel.go('share');
   const sd = panel._shadow;

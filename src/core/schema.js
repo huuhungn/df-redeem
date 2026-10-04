@@ -98,6 +98,7 @@ var DFRedeemSchema = (function dfRedeemSchemaModule(root) {
       author: text(row.author),
       format,
       verified: Boolean(row.verified),
+      ...(text(row.label).trim() ? { label: text(row.label).trim() } : {}),
       /* Equipment cost is optional and community-measured, so it is carried only
        * when present and always with its agreement state. Writing a 0 here would
        * make an unpriced build look free; omitting the key lets the UI say "no
