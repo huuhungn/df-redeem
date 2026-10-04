@@ -752,6 +752,24 @@ async function mirrorPanelWith(sync) {
   return sandbox.__createPanel({ version: '3.0.0', target: 'test', vault: v, sync });
 }
 
+/* A panel in its own vm context, so its vault and document are not the shared
+ * ones the rest of the suite seeded. */
+function freshPanel() {
+  const box = { ...sandbox };
+  box.document = makeDom().document;
+  box.localStorage = (() => {
+    const m = new Map();
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
+  })();
+  box.window = box; box.self = box; box.globalThis = box;
+  /* The shared sandbox stubs fetch to a success, and seedOnFirstRun would then
+   * import the shipped seed into this vault. This panel must start empty. */
+  box.fetch = undefined;
+  vm.createContext(box);
+  vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__Vault = root.DFRedeemVault;`, box, { filename: 'bundle-fresh.js' });
+  return box;
+}
+
 const within = (p, ms) => Promise.race([
   p.then(() => true),
   new Promise((res) => setTimeout(() => res(false), ms)),
@@ -1738,6 +1756,105 @@ test('an embedded page panel leaves Ctrl+K, Alt+D and Escape to the page', async
   press('Escape', {});
   press('Escape', {});
   assert(drawer._shell.hidden, 'Escape still closes the drawer');
+});
+
+test('the sync chip follows the backup as it happens, not only at panel open', async () => {
+  /* setSyncChip() ran once, inside createPanel, so the chip kept the state it
+   * read at mount. A backup that finished afterwards — the one the panel itself
+   * starts when a run ends, or one started by another surface — never reached
+   * the header until the panel was opened again. */
+  let state = { state: 'never-synced', lastSyncAt: null };
+  const pushes = [];
+  const sync = {
+    status: async () => state,
+    getSettings: async () => ({ enabled: true, autoSync: true, backend: 'chrome-sync' }),
+    syncNow: async (records) => {
+      pushes.push(records.map((r) => r.code));
+      state = { state: 'ok', lastSyncAt: new Date().toISOString(), recordCount: records.length };
+      return { ok: true, status: state };
+    },
+  };
+  const v = new V.Vault({ adapter: new V.MemoryAdapter() });
+  await v.init();
+  await v.upsert({ code: 'CHIPUPDATE01', status: 'success' });
+  const p = sandbox.__createPanel({ version: '3.0.0', target: 'test', vault: v, sync });
+  await p.open();
+  const chip = p._shadow.querySelector('.sync-chip');
+  assert(chip && /Chưa đồng bộ/.test(chip.textContent), 'the chip must start from the current status');
+
+  await p.go('run');
+  const sd = p._shadow;
+  sd.querySelector('.queue').value = 'CHIPUPDATE01';
+  sd.querySelector('[data-act="start"]').click();
+  await until(() => /Đã đồng bộ/.test(chip.textContent),
+    'the chip must read "Đã đồng bộ" the moment the post-run backup finishes');
+  assert(pushes.length === 1, 'the panel must back the vault up exactly once per run');
+  assert(chip.className.split(/\s+/).includes('st-ok'), 'the chip must carry the ok state class');
+
+  /* A backup that did not originate here — options, the popup, another tab —
+   * must move the same chip without a re-render. */
+  state = { state: 'error', lastSyncAt: null, error: 'hết hạn mức' };
+  p.refreshSync();
+  await until(() => /Lỗi đồng bộ/.test(chip.textContent),
+    'the chip must follow a backup reported by another surface');
+  assert(chip.className.split(/\s+/).includes('st-error'), 'the chip must carry the error state class');
+});
+
+test('Đồng bộ ngay backs the vault up on demand and the chip follows it', async () => {
+  /* The only personal backup was the automatic one at the end of a run, so a
+   * user who imported codes or fixed a failed sync had no way to push them
+   * until the next run. The header button must do that push itself. */
+  let state = { state: 'never-synced', lastSyncAt: null };
+  const pushes = [];
+  const sync = {
+    status: async () => state,
+    getSettings: async () => ({ enabled: true, autoSync: true, backend: 'chrome-sync' }),
+    syncNow: async (records) => {
+      pushes.push(records.map((r) => r.code).sort());
+      state = { state: 'ok', lastSyncAt: new Date().toISOString(), recordCount: records.length };
+      return { ok: true, status: state };
+    },
+  };
+  const box = freshPanel();
+  const BV = box.__Vault;
+  const v = new BV.Vault({ adapter: new BV.MemoryAdapter() });
+  await v.init();
+  await v.upsert({ code: 'MANUALSYNC01', status: 'success' });
+  await v.upsert({ code: 'MANUALSYNC02', status: 'invalid' });
+  const p = box.__createPanel({ version: '3.0.0', target: 'test', vault: v, sync });
+  await p.open();
+  const btn = p._shadow.querySelector('[data-act="sync-now"]');
+  assert(btn, 'the header must offer a Đồng bộ ngay button');
+  assert(/Đồng bộ ngay/.test(btn.getAttribute('aria-label') || btn.title || btn.textContent),
+    'the button must be labelled Đồng bộ ngay');
+
+  btn.click();
+  const chip = p._shadow.querySelector('.sync-chip');
+  await until(() => /Đã đồng bộ/.test(chip.textContent),
+    'the chip must read "Đã đồng bộ" as soon as the manual backup finishes');
+  /* open() also seeds a fresh vault, so the push holds more than the two rows
+   * written above. What matters is that it pushed the vault exactly as stored,
+   * including both of them, and exactly once. */
+  const stored = (await v.all()).map((r) => r.code).sort();
+  assert(pushes.length === 1, 'the button must push exactly once, got ' + pushes.length);
+  assert(stored.includes('MANUALSYNC01') && stored.includes('MANUALSYNC02'),
+    'the two codes must be in the vault');
+  assert(pushes[0].join(',') === stored.join(','),
+    'the manual backup must push every vault record and nothing else');
+  assert(/Đã đồng bộ/.test(p._shadow.querySelector('.toast-wrap').textContent),
+    'a manual backup must confirm it finished');
+
+  /* A second click while the first push is still running must not start one. */
+  let release;
+  sync.syncNow = (records) => new Promise((res) => {
+    pushes.push(records.map((r) => r.code));
+    release = () => res({ ok: true, status: state });
+  });
+  btn.click();
+  btn.click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert(pushes.length === 2, 'a click during a running backup must not start a second one, got ' + pushes.length);
+  release();
 });
 
 (async () => {

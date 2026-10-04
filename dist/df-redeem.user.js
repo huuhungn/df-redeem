@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Delta Force Auto Redeem (verified)
 // @namespace    local.df-redeem
-// @version      3.3.6
+// @version      3.3.7
 // @description  Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật, xuất CSV/JSON. Không gửi dữ liệu ra ngoài.
 // @author       local
 // @match        https://redeem.df.garena.sg/*
@@ -11,8 +11,8 @@
 // @grant        GM_deleteValue
 // @noframes
 // ==/UserScript==
-/* Delta Force Auto Redeem v3.3.6
- * Built v3.3.6 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.7
+ * Built v3.3.7 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -3391,6 +3391,7 @@ function createPanel(options) {
         </div>
         <div class="hd-acts">
           <span class="sync-chip" hidden></span>
+          <button class="ico" data-act="sync-now" aria-label="Đồng bộ ngay" title="Đồng bộ ngay">☁</button>
           <button class="ico palette-btn" data-act="palette" aria-label="Lệnh nhanh" title="Lệnh nhanh (Ctrl+K)">⌘</button>
           <button class="ico" data-act="refresh" aria-label="Tải lại dữ liệu" title="Tải lại dữ liệu">⟳</button>
           <button class="ico close" aria-label="Thu gọn bảng" title="Thu gọn (Esc)">✕</button>
@@ -4078,6 +4079,7 @@ function createPanel(options) {
           if (!settings || (settings.enabled !== false && settings.autoSync !== false)) {
             const reply = await opts.sync.syncNow(await vault.all());
             const syncStatus = reply && reply.status ? reply.status : reply;
+            setSyncChip(syncStatus);
             if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
           }
         } catch (error) {
@@ -4097,6 +4099,42 @@ function createPanel(options) {
       const p = $('[data-act="pause"]'); if (p) { p.disabled = true; p.textContent = 'Tạm dừng'; }
       const st = $('[data-act="stop"]'); if (st) st.disabled = true;
       await refresh();
+    }
+  }
+
+  /* A backup the user asks for, rather than the automatic one at the end of a
+   * run. Without it, codes imported or edited outside a run sat unsaved until
+   * the next run, and a failed sync could only be retried by running again.
+   * One backup at a time: a second click while the first is still talking to
+   * the bridge must not start a parallel push of the same vault. */
+  let manualSyncing = false;
+  async function syncNowManual() {
+    if (manualSyncing) return;
+    if (!opts.sync || !opts.sync.syncNow || !vault || !vault.all) {
+      return toast('Bản này không có đồng bộ cá nhân.', 'warn');
+    }
+    manualSyncing = true;
+    const btn = $('[data-act="sync-now"]');
+    if (btn) btn.disabled = true;
+    setSyncChip({ state: 'syncing' });
+    try {
+      const settings = opts.sync.getSettings ? await opts.sync.getSettings() : null;
+      if (settings && settings.enabled === false) return toast('Đồng bộ cá nhân đang tắt trong Cài đặt.', 'warn');
+      const reply = await opts.sync.syncNow(await vault.all());
+      const syncStatus = reply && reply.status ? reply.status : reply;
+      setSyncChip(syncStatus);
+      if (syncStatus && syncStatus.state === 'error') {
+        toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+      } else {
+        const n = syncStatus && Number.isFinite(syncStatus.recordCount) ? ` ${syncStatus.recordCount} mã` : '';
+        toast('Đã đồng bộ' + n + '.', 'ok');
+      }
+    } catch (error) {
+      setSyncChip();
+      toast('Đồng bộ cá nhân lỗi: ' + (error && error.message || error), 'err');
+    } finally {
+      manualSyncing = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -4821,6 +4859,7 @@ function createPanel(options) {
       run: () => { historyCode = null; go(v); },
     }));
     items.push(
+      { label: 'Đồng bộ ngay', hint: 'Sao lưu kho lên đám mây', icon: '☁', run: () => syncNowManual() },
       { label: 'Tải lại dữ liệu', hint: 'Đọc lại từ kho', icon: '⟳', run: () => go(view) },
       { label: 'Đưa mã chưa thử vào hàng chờ', hint: untriedCodes().length + ' mã', icon: '▶',
         run: async () => { store.set('queue', untriedCodes().map((r) => r.code).join('\n')); await go('run'); } },
@@ -4959,6 +4998,7 @@ function createPanel(options) {
     const act = btn.dataset.act;
 
     if (act === 'palette') return openPalette();
+    if (act === 'sync-now') return syncNowManual();
     if (act === 'refresh') { await go(view); return toast('Đã tải lại.', 'ok'); }
     if (act === 'goto-run') { historyCode = null; return go('run'); }
     if (act === 'goto-share') return go('share');
@@ -5203,11 +5243,11 @@ function createPanel(options) {
     if (e.altKey && /^[1-6]$/.test(e.key)) { historyCode = null; go(VIEWS[Number(e.key) - 1]); }
   });
 
-  async function setSyncChip() {
+  async function setSyncChip(known) {
     const chip = $('.sync-chip');
     if (!chip || !opts.sync || !opts.sync.status) { if (chip) chip.hidden = true; return; }
     try {
-      const s = await opts.sync.status();
+      const s = known && known.state ? known : await opts.sync.status();
       const label = { ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', error: 'Lỗi đồng bộ', 'never-synced': 'Chưa đồng bộ' }[s.state] || s.state;
       chip.hidden = false;
       chip.textContent = label;
@@ -5220,6 +5260,7 @@ function createPanel(options) {
     open, close: closePanel, mountLauncher, go, refresh,
     start: startRun,
     palette: openPalette,
+    refreshSync: () => setSyncChip(),
     getStats: () => cache.stats,
     getResults: () => cache.codes.slice(),
     vault, surface,
@@ -5243,7 +5284,7 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.3.6', target: 'userscript', store, sync });
+  const panel = createPanel({ version: '3.3.7', target: 'userscript', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
 }());

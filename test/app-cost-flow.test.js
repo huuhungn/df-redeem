@@ -280,6 +280,17 @@ test('the bridge refuses a key outside the allowlist', async () => {
   assert.strictEqual(stub.store.size, 0, 'a rejected key must not write anything');
 });
 
+test('app.html offers Đồng bộ ngay and routes it to the panel backup', () => {
+  /* app.html hides the drawer and copies its views into #page-view, so the
+   * drawer's own header button is not on screen there. The page must ship the
+   * same action and click through to the panel's. */
+  const html = fs.readFileSync(path.join(root, 'extension', 'app.html'), 'utf8');
+  assert(/id="p-sync"[\s\S]{0,80}aria-label="Đồng bộ ngay"/.test(html),
+    'app.html must have a Đồng bộ ngay button');
+  assert(/getElementById\('p-sync'\)[\s\S]{0,220}\.hd \[data-act="sync-now"\]/.test(appSrc),
+    'the page button must click the panel sync action');
+});
+
 (async () => {
   for (const t of tests) {
     try { await t.fn(); console.log('  ok   ' + t.name); }

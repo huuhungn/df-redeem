@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.3.6';
+const VERSION = '3.3.7';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -565,6 +565,7 @@ const appHtml = `<!doctype html>
           <p class="page-hint muted"></p>
         </div>
         <div class="page-acts">
+          <button class="act ghost icon-only" id="p-sync" title="Đồng bộ ngay" aria-label="Đồng bộ ngay">☁</button>
           <button class="act ghost icon-only" id="p-refresh" title="Tải lại" aria-label="Tải lại">⟳</button>
         </div>
       </header>
@@ -910,6 +911,12 @@ ${UI}
   document.getElementById('p-refresh').addEventListener('click', () => {
     const btn = panel._shadow.querySelector('.hd [data-act="refresh"]');
     if (btn) btn.click(); else show(shownView || 'dashboard');
+  });
+  /* The drawer is display:none on this page, so its own header button is not
+   * reachable. Route the page button to the same action. */
+  document.getElementById('p-sync').addEventListener('click', () => {
+    const btn = panel._shadow.querySelector('.hd [data-act="sync-now"]');
+    if (btn) btn.click();
   });
   document.getElementById('open-redeem').addEventListener('click', () => window.open('https://redeem.df.garena.sg/vi/cdkgarena.html', '_blank'));
   document.getElementById('open-options').addEventListener('click', () => { if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage(); });
