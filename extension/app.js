@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.3.4
- * Built v3.3.4 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.5
+ * Built v3.3.5 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -4969,7 +4969,7 @@ function createPanel(options) {
     hqReadPrices: () => chrome.runtime.sendMessage({ type: 'DF_REDEEM_SYNC', op: 'hqReadPrices' }),
   };
   const panel = createPanel({
-    version: '3.3.4', target: 'page', surface: 'page', sync,
+    version: '3.3.5', target: 'page', surface: 'page', sync,
     /* The page always opens on Tổng quan. Passing it here, instead of calling
      * show('dashboard') once open() resolved, lets a tab the user clicked while
      * the vault was still loading win: that late call used to overwrite it. */
