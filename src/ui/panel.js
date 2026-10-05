@@ -155,7 +155,7 @@ function createPanel(options) {
           <h2>Auto Redeem <span class="ver">v${esc(version)}</span></h2>
         </div>
         <div class="hd-acts">
-          <span class="sync-chip" hidden></span>
+          <span class="sync-chip" role="status" aria-live="polite" hidden></span>
           <button class="ico" data-act="sync-now" aria-label="Đồng bộ ngay" title="Đồng bộ ngay">☁</button>
           <button class="ico palette-btn" data-act="palette" aria-label="Lệnh nhanh" title="Lệnh nhanh (Ctrl+K)">⌘</button>
           <button class="ico" data-act="refresh" aria-label="Tải lại dữ liệu" title="Tải lại dữ liệu">⟳</button>
@@ -873,33 +873,58 @@ function createPanel(options) {
    * One backup at a time: a second click while the first is still talking to
    * the bridge must not start a parallel push of the same vault. */
   let manualSyncing = false;
+  let syncRevision = 0;
+  let syncPresentation = null;
+  function paintSync(state) {
+    syncPresentation = state;
+    const chip = $('.sync-chip');
+    if (chip) {
+      chip.hidden = Boolean(state.hidden);
+      chip.textContent = state.label;
+      chip.className = 'sync-chip st-' + state.state;
+      chip.title = state.title;
+    }
+    const disabled = state.disabled || manualSyncing;
+    const btn = $('[data-act="sync-now"]');
+    if (btn) {
+      btn.disabled = disabled;
+      btn.title = disabled ? state.title : 'Đồng bộ ngay';
+      btn.setAttribute('aria-busy', String(state.state === 'syncing'));
+    }
+    if (opts.onSyncChange) opts.onSyncChange({ ...state, disabled });
+  }
   async function syncNowManual() {
-    if (manualSyncing) return;
+    if (manualSyncing || (syncPresentation && syncPresentation.state === 'syncing')) return;
     if (!opts.sync || !opts.sync.syncNow || !vault || !vault.all) {
       return toast('Bản này không có đồng bộ cá nhân.', 'warn');
     }
     manualSyncing = true;
-    const btn = $('[data-act="sync-now"]');
-    if (btn) btn.disabled = true;
-    setSyncChip({ state: 'syncing' });
+    await setSyncChip({ state: 'syncing' });
     try {
       const settings = opts.sync.getSettings ? await opts.sync.getSettings() : null;
-      if (settings && settings.enabled === false) return toast('Đồng bộ cá nhân đang tắt trong Cài đặt.', 'warn');
+      if (settings && settings.enabled === false) {
+        toast('Đồng bộ cá nhân đang tắt trong Cài đặt.', 'warn');
+        await setSyncChip();
+        return;
+      }
       const reply = await opts.sync.syncNow(await vault.all());
       const syncStatus = reply && reply.status ? reply.status : reply;
-      setSyncChip(syncStatus);
+      await setSyncChip(syncStatus);
       if (syncStatus && syncStatus.state === 'error') {
         toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
-      } else {
-        const n = syncStatus && Number.isFinite(syncStatus.recordCount) ? ` ${syncStatus.recordCount} mã` : '';
+      } else if (syncStatus && syncStatus.state === 'ok') {
+        const n = Number.isFinite(syncStatus.recordCount) ? ` ${syncStatus.recordCount} mã` : '';
         toast('Đã đồng bộ' + n + '.', 'ok');
+      } else {
+        toast('Chưa hoàn tất đồng bộ. Kiểm tra Cài đặt rồi thử lại.', 'warn');
       }
     } catch (error) {
-      setSyncChip();
-      toast('Đồng bộ cá nhân lỗi: ' + (error && error.message || error), 'err');
+      const message = String(error && error.message || error);
+      await setSyncChip({ state: 'error', error: message });
+      toast('Đồng bộ cá nhân lỗi: ' + message, 'err');
     } finally {
       manualSyncing = false;
-      if (btn) btn.disabled = false;
+      if (syncPresentation) paintSync(syncPresentation);
     }
   }
 
@@ -2011,12 +2036,22 @@ function createPanel(options) {
   async function setSyncChip(known) {
     const chip = $('.sync-chip');
     if (!chip || !opts.sync || !opts.sync.status) { if (chip) chip.hidden = true; return; }
+    const revision = ++syncRevision;
     try {
       const s = known && known.state ? known : await opts.sync.status();
-      const label = { ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', error: 'Lỗi đồng bộ', 'never-synced': 'Chưa đồng bộ' }[s.state] || s.state;
-      chip.hidden = false;
-      chip.textContent = label;
-      chip.className = 'sync-chip st-' + s.state;
+      if (revision !== syncRevision) return;
+      const settings = opts.sync.getSettings ? await opts.sync.getSettings() : null;
+      if (revision !== syncRevision) return;
+      const disabled = Boolean(settings && settings.enabled === false);
+      const state = disabled ? 'disabled' : String(s && s.state || 'never-synced');
+      const label = { ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', error: 'Lỗi đồng bộ', 'never-synced': 'Chưa đồng bộ', disabled: 'Đã tắt đồng bộ' }[state] || state;
+      paintSync({
+        state,
+        label,
+        title: disabled ? 'Bật đồng bộ trong Cài đặt.' : (s && s.error ? String(s.error) : label),
+        hidden: false,
+        disabled: disabled || state === 'syncing',
+      });
     } catch (_) {}
   }
   setSyncChip();
@@ -2025,6 +2060,7 @@ function createPanel(options) {
     open, close: closePanel, mountLauncher, go, refresh,
     start: startRun,
     palette: openPalette,
+    syncNow: syncNowManual,
     refreshSync: () => setSyncChip(),
     getStats: () => cache.stats,
     getResults: () => cache.codes.slice(),

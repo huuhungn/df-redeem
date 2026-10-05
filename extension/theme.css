@@ -409,7 +409,21 @@
 .df .act.ghost:hover:not([disabled]) { border-color: var(--line); background: var(--raised); color: var(--ink); }
 .df .act.tiny { min-height: 32px; padding: 0 11px; font-size: 11.5px; }
 .df .btnrow { display: flex; flex-wrap: wrap; gap: 6px; }
-.df .page-acts { display: grid; gap: 6px; }
+.df .page-acts { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+
+/* ── sync status chip: drawer header and the full page header ─────────── */
+.df .sync-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--ink-mute); font-size: 10px; font-weight: 600;
+  cursor: default; white-space: nowrap;
+}
+.df .sync-chip[hidden] { display: none; }
+.df .sync-chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.df .sync-chip.st-ok { border-color: var(--primary-dim); color: var(--primary); }
+.df .sync-chip.st-error { border-color: #4a2228; color: var(--danger); }
+.df .sync-chip.st-syncing { border-color: #4a3a1e; color: var(--amber); }
+.df .sync-chip.st-disabled { border-style: dashed; }
 
 /* ── cards ─────────────────────────────────────────────────────────────── */
 .df .card {

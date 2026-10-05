@@ -16,4 +16,11 @@
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'DF_REDEEM_OPEN') window.postMessage({ channel: 'df-redeem-open' }, window.location.origin);
   });
+  /* Invalidate only: settings may contain credentials, so never forward storage
+   * values into the page. The panel re-reads the worker's public status API. */
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.dfRedeemSyncStatus || changes.dfRedeemSettings)) {
+      window.postMessage({ channel: 'df-redeem-sync-changed' }, window.location.origin);
+    }
+  });
 }());

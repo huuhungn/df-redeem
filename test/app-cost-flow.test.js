@@ -134,7 +134,10 @@ function makeChromeStub() {
         },
         onMessage: { addListener() {} },
       },
-      storage: { local: { get: async () => ({}), set: async () => {} } },
+      storage: {
+        local: { get: async () => ({}), set: async () => {} },
+        onChanged: { addListener() {} },
+      },
     },
   };
 }
@@ -283,12 +286,13 @@ test('the bridge refuses a key outside the allowlist', async () => {
 test('app.html offers Đồng bộ ngay and routes it to the panel backup', () => {
   /* app.html hides the drawer and copies its views into #page-view, so the
    * drawer's own header button is not on screen there. The page must ship the
-   * same action and click through to the panel's. */
+   * same action and call the panel's public backup API, which owns the guard
+   * and the feedback. Behaviour is exercised in sync-wiring.test.js. */
   const html = fs.readFileSync(path.join(root, 'extension', 'app.html'), 'utf8');
   assert(/id="p-sync"[\s\S]{0,80}aria-label="Đồng bộ ngay"/.test(html),
     'app.html must have a Đồng bộ ngay button');
-  assert(/getElementById\('p-sync'\)[\s\S]{0,220}\.hd \[data-act="sync-now"\]/.test(appSrc),
-    'the page button must click the panel sync action');
+  assert(/getElementById\('p-sync'\)[\s\S]{0,120}panel\.syncNow\(\)/.test(appSrc),
+    'the page button must call the panel backup action');
 });
 
 (async () => {

@@ -289,6 +289,7 @@ const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 let failures = 0;
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
+const equal = require('assert').strictEqual;
 
 /* memory-backed vault so no IndexedDB is needed */
 const V = sandbox.__Vault;
@@ -1855,6 +1856,72 @@ test('Đồng bộ ngay backs the vault up on demand and the chip follows it', a
   await new Promise((r) => setTimeout(r, 20));
   assert(pushes.length === 2, 'a click during a running backup must not start a second one, got ' + pushes.length);
   release();
+});
+
+test('sync refresh ignores stale replies and reflects disabled settings', async () => {
+  const box = freshPanel();
+  const pending = [];
+  let enabled = true;
+  const changes = [];
+  const p = box.__createPanel({
+    version: 'test', target: 'extension',
+    sync: {
+      status: () => new Promise((resolve) => pending.push(resolve)),
+      getSettings: async () => ({ enabled }),
+      syncNow: async () => ({ state: 'ok' }),
+    },
+    onSyncChange: (state) => changes.push(state),
+  });
+  const chip = p._shadow.querySelector('.sync-chip');
+  const btn = p._shadow.querySelector('[data-act="sync-now"]');
+  await until(() => pending.length === 1, 'initial status request');
+  const refresh = p.refreshSync();
+  await until(() => pending.length === 2, 'newer status request');
+  pending[1]({ state: 'syncing' });
+  await refresh;
+  equal(chip.textContent, 'Đang đồng bộ…');
+  equal(btn.disabled, true, 'external backups disable the action too');
+  pending[0]({ state: 'never-synced' });
+  await new Promise((r) => setTimeout(r, 0));
+  equal(chip.textContent, 'Đang đồng bộ…', 'old mount reply must not overwrite progress');
+  enabled = false;
+  const disabled = p.refreshSync();
+  await until(() => pending.length === 3, 'disabled refresh');
+  pending[2]({ state: 'ok', lastSyncAt: Date.now() });
+  await disabled;
+  equal(chip.textContent, 'Đã tắt đồng bộ');
+  equal(btn.disabled, true);
+  equal(chip.getAttribute('role'), 'status');
+  equal(chip.getAttribute('aria-live'), 'polite');
+  equal(changes[changes.length - 1].state, 'disabled', 'page receives the same state');
+});
+
+test('manual sync exposes one action and never celebrates an unconfirmed backup', async () => {
+  const box = freshPanel();
+  const v = new box.__Vault.Vault({ adapter: new box.__Vault.MemoryAdapter() });
+  await v.init();
+  let finish;
+  let pushes = 0;
+  const p = box.__createPanel({
+    version: 'test', target: 'extension', vault: v,
+    sync: {
+      status: async () => ({ state: 'never-synced' }),
+      getSettings: async () => ({ enabled: true }),
+      syncNow: () => { pushes++; return new Promise((resolve) => { finish = resolve; }); },
+    },
+  });
+  equal(typeof p.syncNow, 'function', 'app must not click a hidden drawer button');
+  await new Promise((r) => setTimeout(r, 0));
+  const first = p.syncNow();
+  await until(() => pushes === 1, 'backup begins');
+  await p.syncNow();
+  equal(pushes, 1, 'repeated actions share the in-flight guard');
+  finish({ state: 'never-synced' });
+  await first;
+  const text = p._shadow.querySelector('.toast-wrap').textContent;
+  assert(!/Đã đồng bộ/.test(text), 'no success toast without an ok result');
+  assert(/Chưa hoàn tất/.test(text), 'explain the unconfirmed result');
+  equal(p._shadow.querySelector('[data-act="sync-now"]').disabled, false);
 });
 
 (async () => {

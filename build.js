@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.3.7';
+const VERSION = '3.3.8';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -249,7 +249,9 @@ ${UI}
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
   window.addEventListener('message', (event) => {
-    if (event.source === window && event.data && event.data.channel === 'df-redeem-open') panel.open();
+    if (event.source !== window || !event.data) return;
+    if (event.data.channel === 'df-redeem-open') panel.open();
+    if (event.data.channel === 'df-redeem-sync-changed') panel.refreshSync();
   });
 }());
 `;
@@ -429,6 +431,13 @@ const bridge = `/* bridge.js — ISOLATED-world relay between the MAIN-world pan
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'DF_REDEEM_OPEN') window.postMessage({ channel: 'df-redeem-open' }, window.location.origin);
   });
+  /* Invalidate only: settings may contain credentials, so never forward storage
+   * values into the page. The panel re-reads the worker's public status API. */
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.dfRedeemSyncStatus || changes.dfRedeemSettings)) {
+      window.postMessage({ channel: 'df-redeem-sync-changed' }, window.location.origin);
+    }
+  });
 }());
 `;
 
@@ -565,6 +574,7 @@ const appHtml = `<!doctype html>
           <p class="page-hint muted"></p>
         </div>
         <div class="page-acts">
+          <span class="sync-chip" id="p-sync-status" role="status" aria-live="polite" hidden></span>
           <button class="act ghost icon-only" id="p-sync" title="Đồng bộ ngay" aria-label="Đồng bộ ngay">☁</button>
           <button class="act ghost icon-only" id="p-refresh" title="Tải lại" aria-label="Tải lại">⟳</button>
         </div>
@@ -617,6 +627,7 @@ html, body { margin: 0; min-height: 100%; background: var(--void); }
   backdrop-filter: blur(8px);
 }
 .page-title { margin: 0; font-size: 19px; letter-spacing: -.015em; }
+.page-acts { flex-shrink: 0; }
 .page-hint { margin: 2px 0 0; font-size: 11.5px; }
 
 /* On a real page the views get room to breathe: two columns where it helps. */
@@ -694,6 +705,17 @@ ${UI}
     /* The drawer shell is mounted display:none below, which hides its shadow
      * toast stack too. Copy/save feedback must land in this page instead. */
     toastHost: document.getElementById('toasts'),
+    onSyncChange: (state) => {
+      const chip = document.getElementById('p-sync-status');
+      const button = document.getElementById('p-sync');
+      chip.hidden = Boolean(state.hidden);
+      chip.textContent = state.label;
+      chip.className = 'sync-chip st-' + state.state;
+      chip.title = state.title;
+      button.disabled = state.disabled;
+      button.title = state.disabled ? state.title : 'Đồng bộ ngay';
+      button.setAttribute('aria-busy', String(state.state === 'syncing'));
+    },
     /* The view below is a clone, refreshed right after each click. The HQ
      * review repaints seconds later when the fetch or the import finishes, so
      * the panel calls back and the visible clone is replaced then. */
@@ -708,6 +730,9 @@ ${UI}
     /* Focus the panel moves (into the cost field, back onto an HQ pick) lands
      * on this page's copy of the control after the next repaint. */
     onFocus: (el, select) => { pendingFocus = { id: identify(el), select }; },
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.dfRedeemSyncStatus || changes.dfRedeemSettings)) panel.refreshSync();
   });
   const host = document.getElementById('page-view');
   const nav = document.querySelector('.side-nav');
@@ -912,12 +937,8 @@ ${UI}
     const btn = panel._shadow.querySelector('.hd [data-act="refresh"]');
     if (btn) btn.click(); else show(shownView || 'dashboard');
   });
-  /* The drawer is display:none on this page, so its own header button is not
-   * reachable. Route the page button to the same action. */
-  document.getElementById('p-sync').addEventListener('click', () => {
-    const btn = panel._shadow.querySelector('.hd [data-act="sync-now"]');
-    if (btn) btn.click();
-  });
+  /* One public action owns the guard and feedback on both surfaces. */
+  document.getElementById('p-sync').addEventListener('click', () => panel.syncNow());
   document.getElementById('open-redeem').addEventListener('click', () => window.open('https://redeem.df.garena.sg/vi/cdkgarena.html', '_blank'));
   document.getElementById('open-options').addEventListener('click', () => { if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage(); });
 

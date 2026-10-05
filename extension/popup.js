@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.3.7
- * Built v3.3.7 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.8
+ * Built v3.3.8 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
