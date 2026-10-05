@@ -1,10 +1,10 @@
 {
   "version": 3,
-  "updated_at": "2026-10-03T16:21:05.693Z",
+  "updated_at": "2026-10-05T14:46:21.314Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
     "success": 224,
-    "expired": 86,
+    "expired": 87,
     "gift_bug": 14
   },
   "codes": [
@@ -1750,6 +1750,13 @@
       "err_code": 400068,
       "confirmations": 2,
       "last_checked": "2026-09-26"
+    },
+    {
+      "code": "GARENADFCBT2503Z6T9",
+      "status": "expired",
+      "err_code": 400068,
+      "confirmations": 2,
+      "last_checked": "2026-10-05"
     },
     {
       "code": "GARENADFID2501L983",
