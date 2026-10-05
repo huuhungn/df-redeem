@@ -191,6 +191,39 @@ const DFRedeemSync = (function attachSync(root) {
     return withoutToken;
   }
 
+  /* Where a backup goes. A status describes the destination that produced it,
+   * so a change to any of these makes the stored status stale. Endpoint and
+   * token only address a REST backend; the options form posts them for every
+   * backend, and editing an unused field must not void a Chrome-sync status. */
+  function destinationKey(settings) {
+    const safe = safeSettings(settings);
+    if (safe.syncBackend !== 'rest') return JSON.stringify([safe.syncBackend]);
+    return JSON.stringify([safe.syncBackend, String(safe.syncEndpoint || '').trim(), safe.syncToken]);
+  }
+
+  /* fetch() rejects with the browser's own English wording — "Failed to fetch"
+   * in Chrome, "NetworkError when attempting to fetch resource." in Firefox,
+   * "Load failed" in Safari — and that string reached the toast, the sync chip
+   * and the options page verbatim. Map the known transport failures to one
+   * Vietnamese sentence; every other message is already ours and passes
+   * through unchanged. */
+  const NETWORK_ERROR_TEXT = [
+    [/failed to fetch|networkerror when attempting to fetch|^(?:typeerror:\s*)?load failed$|network request failed|^(?:typeerror:\s*)?fetch failed$|net::err_|err_(?:name_not_resolved|connection_\w+|internet_disconnected|address_unreachable)/i,
+      'Lỗi mạng: không kết nối được máy chủ (mất Internet, sai địa chỉ hoặc máy chủ chặn truy cập).'],
+    [/^(?:aborterror|timeouterror)\b|user aborted|operation was aborted|signal is aborted|timed out/i,
+      'Máy chủ không phản hồi kịp (quá thời gian chờ).'],
+    [/unexpected token|is not valid json|unexpected end of json|json\.parse/i,
+      'Máy chủ trả về dữ liệu không đọc được (không phải JSON).'],
+    [/^(?:typeerror:\s*)?(?:invalid url|failed to construct 'url')/i,
+      'Địa chỉ máy chủ không hợp lệ.'],
+  ];
+  function friendlyError(error) {
+    if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return NETWORK_ERROR_TEXT[1][1];
+    const message = String(error && error.message || error || '');
+    for (const [pattern, text] of NETWORK_ERROR_TEXT) if (pattern.test(message)) return text;
+    return message;
+  }
+
   function serializeExport(data) {
     const input = data && typeof data === 'object' ? data : {};
     return JSON.stringify({
@@ -399,6 +432,14 @@ const DFRedeemSync = (function attachSync(root) {
       const backend = backends.get(backendName);
       if (!backend) return setStatus({ state: 'error', lastSyncAt: null, error: `Backend không tồn tại: ${backendName}` });
       const startedAt = clock();
+      const destination = destinationKey(settings);
+      /* A backup to the old destination that finishes after the user saved a
+       * new one must not paint its verdict over the new destination's status:
+       * that is exactly how a stale "Failed to fetch" outlived the fix. */
+      const settle = async (status) => {
+        const now = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+        return destinationKey(now[SETTINGS_KEY]) === destination ? setStatus(status) : status;
+      };
       await setStatus({ state: 'syncing', lastSyncAt: null, error: null });
       try {
         const localDelta = compactDelta(records);
@@ -406,16 +447,32 @@ const DFRedeemSync = (function attachSync(root) {
         const merged = mergeDeltas(localDelta, remoteDelta);
         await backend.push(settings, merged);
         await setLocal({ [SYNC_DELTA_KEY]: merged, [RECORDS_KEY]: deltaToRecords(merged) });
-        return setStatus({ state: 'ok', lastSyncAt: clock(), startedAt, error: null, recordCount: Object.keys(merged).length });
+        return settle({ state: 'ok', lastSyncAt: clock(), startedAt, error: null, recordCount: Object.keys(merged).length });
       } catch (error) {
-        const message = String(error && error.message || error).replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
-        return setStatus({ state: 'error', lastSyncAt: null, error: message });
+        const message = friendlyError(error).replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
+        return settle({ state: 'error', lastSyncAt: null, error: message });
       }
+    }
+
+    /* Persist new settings. Moving the backup elsewhere — another backend,
+     * endpoint or token, or switching it off and on — voids the stored status:
+     * an error (or an "ok") describes the destination that produced it, and
+     * leaving it up made the new destination look broken before it was even
+     * tried. Only a boolean leaves here; the destination key holds the token. */
+    async function saveSettings(next) {
+      const raw = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+      const moved = destinationKey(raw[SETTINGS_KEY]) !== destinationKey(next);
+      await setLocal({ [SETTINGS_KEY]: next });
+      if (moved) await setStatus({ state: 'never-synced', lastSyncAt: null, error: null });
+      return { moved };
     }
 
     async function status() {
       const raw = await getLocal({ [STATUS_KEY]: { state: 'never-synced', lastSyncAt: null, error: null } });
-      return raw[STATUS_KEY];
+      const current = raw[STATUS_KEY];
+      /* Statuses written before errors were translated still hold the
+       * browser's English; translate them on the way out as well. */
+      return current && current.error ? { ...current, error: friendlyError(current.error) } : current;
     }
 
     /* Return the public settings needed by UI surfaces without exposing tokens. */
@@ -467,7 +524,7 @@ const DFRedeemSync = (function attachSync(root) {
         ]);
         return { ok: true, codes, presets, fetchedAt: clock() };
       } catch (error) {
-        return { ok: false, error: String(error && error.message || error), codes: [], presets: [] };
+        return { ok: false, error: friendlyError(error), codes: [], presets: [] };
       }
     }
 
@@ -549,7 +606,7 @@ const DFRedeemSync = (function attachSync(root) {
             .map((r) => `${r.code || '?'}: ${r.error || 'rejected'}`),
         };
       } catch (error) {
-        return { ok: false, sent: 0, failed: shareable.length, error: String(error && error.message || error) };
+        return { ok: false, sent: 0, failed: shareable.length, error: friendlyError(error) };
       }
     }
 
@@ -589,7 +646,7 @@ const DFRedeemSync = (function attachSync(root) {
         }
         return { ok: true, costs, count: Object.keys(costs).length };
       } catch (error) {
-        return { ok: false, error: String((error && error.message) || error), costs: {} };
+        return { ok: false, error: friendlyError(error), costs: {} };
       }
     }
 
@@ -635,16 +692,16 @@ const DFRedeemSync = (function attachSync(root) {
           unchanged: !!(doc && doc.unchanged),
         };
       } catch (error) {
-        return { ok: false, error: String((error && error.message) || error) };
+        return { ok: false, error: friendlyError(error) };
       }
     }
 
-    return { registerBackend, syncNow, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, fetchCosts, reportCost, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
+    return { registerBackend, syncNow, saveSettings, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, fetchCosts, reportCost, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
   }
 
   /* mergeCommunityCodes is pure, so expose it at module level too: UI surfaces
    * need it without constructing a storage-backed service. */
-  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
+  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, friendlyError, destinationKey, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
   };
 
   const api = factory();

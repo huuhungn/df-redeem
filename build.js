@@ -14,7 +14,7 @@ const ROOT = __dirname;
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const EXT = path.join(ROOT, 'extension');
-const VERSION = '3.3.8';
+const VERSION = '3.3.9';
 /* The redeem form lives on cdkgarena.html. https://redeem.df.garena.sg/vi/ is a
  * DIFFERENT page (no code form), so never send the user there. */
 const REDEEM_PATH = '/vi/cdkgarena.html';
@@ -1534,7 +1534,11 @@ ${uiWhen}
       flash($('status'), 'Không lưu được: ' + errText(res), 'err');
       return false;
     }
-    flash($('status'), 'Đã lưu.', 'ok');
+    /* A new destination starts clean: the worker dropped the old status, so
+     * say so instead of leaving the user to wonder where the error went. */
+    flash($('status'), res.moved && form.enabled
+      ? 'Đã lưu nơi sao lưu mới, đã xoá trạng thái cũ. Bấm Kiểm tra kết nối để sao lưu thử.'
+      : 'Đã lưu.', 'ok');
     await load();
     return true;
   }
@@ -1803,8 +1807,11 @@ async function handleSync(op, payload, sender) {
 
   if (op === 'getSettings') return toUi(current);
   if (op === 'setSettings') {
-    await svc.setLocal({ [SETTINGS_KEY]: fromUi(payload || {}, current) });
-    return { ok: true };
+    /* saveSettings voids the stored status when the destination moves, so the
+     * old destination's error stops showing on every surface the moment the
+     * new one is saved. */
+    const { moved } = await svc.saveSettings(fromUi(payload || {}, current));
+    return { ok: true, moved };
   }
   if (op === 'status') return svc.status();
 
@@ -1912,7 +1919,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   if (!msg || msg.type !== 'DF_REDEEM_SYNC') return false;
   handleSync(msg.op, msg.payload, sender)
     .then((result) => respond(result))
-    .catch((error) => respond({ ok: false, error: String(error && error.message || error).replace(/Bearer\\s+[^\\s"']+/gi, 'Bearer [redacted]') }));
+    .catch((error) => respond({ ok: false, error: DFRedeemSync.friendlyError(error).replace(/Bearer\\s+[^\\s"']+/gi, 'Bearer [redacted]') }));
   return true; /* keep the channel open for the async reply */
 });
 

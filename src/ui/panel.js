@@ -25,6 +25,13 @@ function createPanel(options) {
   const V = root.DFRedeemVault;
   const G = root.DFRedeemGarena;   /* verdict labels + verdict→vault status map */
   const S = root.DFRedeemSync;     /* community merge helper; absent in bare tests */
+  /* The worker already translates the errors it reports, but a failure on this
+   * side of the bridge (the worker gone, a timeout, a page-side fetch) still
+   * arrives as the browser's English "Failed to fetch". One translator, the
+   * same one sync.js uses, so the toast, the chip and the options page agree. */
+  const describeError = (error) => (S && S.friendlyError
+    ? S.friendlyError(error)
+    : String((error && error.message) || error || ''));
 
   /* 25, not 50: the drawer is ~515px wide and a 50-row page ran ~2000px tall,
    * which meant constant scrolling to reach the pager. Halving the page keeps a
@@ -845,10 +852,10 @@ function createPanel(options) {
             const reply = await opts.sync.syncNow(await vault.all());
             const syncStatus = reply && reply.status ? reply.status : reply;
             setSyncChip(syncStatus);
-            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (describeError(syncStatus.error) || 'không rõ'), 'err');
           }
         } catch (error) {
-          toast('Đồng bộ cá nhân lỗi: ' + (error && error.message || error), 'err');
+          toast('Đồng bộ cá nhân lỗi: ' + describeError(error), 'err');
         }
       }
       /* Public community synchronization is credential-free and deliberately
@@ -856,7 +863,7 @@ function createPanel(options) {
       if (opts.sync && vault && vault.all) {
         const community = await syncCommunityVault({ pull: true, push: true });
         if (community.pushed && !community.pushed.ok && !community.pushed.skipped) {
-          toast('Đồng bộ cộng đồng lỗi: ' + (community.pushed.error || 'không rõ'), 'err');
+          toast('Đồng bộ cộng đồng lỗi: ' + (describeError(community.pushed.error) || 'không rõ'), 'err');
         }
       }
       const start = $('[data-act="start"]');
@@ -911,7 +918,7 @@ function createPanel(options) {
       const syncStatus = reply && reply.status ? reply.status : reply;
       await setSyncChip(syncStatus);
       if (syncStatus && syncStatus.state === 'error') {
-        toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+        toast('Đồng bộ cá nhân lỗi: ' + (describeError(syncStatus.error) || 'không rõ'), 'err');
       } else if (syncStatus && syncStatus.state === 'ok') {
         const n = Number.isFinite(syncStatus.recordCount) ? ` ${syncStatus.recordCount} mã` : '';
         toast('Đã đồng bộ' + n + '.', 'ok');
@@ -919,7 +926,7 @@ function createPanel(options) {
         toast('Chưa hoàn tất đồng bộ. Kiểm tra Cài đặt rồi thử lại.', 'warn');
       }
     } catch (error) {
-      const message = String(error && error.message || error);
+      const message = describeError(error);
       await setSyncChip({ state: 'error', error: message });
       toast('Đồng bộ cá nhân lỗi: ' + message, 'err');
     } finally {
@@ -1907,7 +1914,7 @@ function createPanel(options) {
         const after = $('.community-status');
         if (after) after.textContent = msg;
       } catch (error) {
-        const msg = 'Không tải được kho cộng đồng: ' + String(error && error.message || error);
+        const msg = 'Không tải được kho cộng đồng: ' + describeError(error);
         toast(msg, 'err');
         const after = $('.community-status');
         if (after) after.textContent = msg;
@@ -1929,7 +1936,7 @@ function createPanel(options) {
         const after = $('.community-status');
         if (after) after.textContent = msg;
       } catch (error) {
-        const msg = 'Không gửi được: ' + String(error && error.message || error);
+        const msg = 'Không gửi được: ' + describeError(error);
         toast(msg, 'err');
         const after = $('.community-status');
         if (after) after.textContent = msg;
@@ -2048,7 +2055,7 @@ function createPanel(options) {
       paintSync({
         state,
         label,
-        title: disabled ? 'Bật đồng bộ trong Cài đặt.' : (s && s.error ? String(s.error) : label),
+        title: disabled ? 'Bật đồng bộ trong Cài đặt.' : (s && s.error ? describeError(s.error) : label),
         hidden: false,
         disabled: disabled || state === 'syncing',
       });

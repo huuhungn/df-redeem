@@ -1,5 +1,5 @@
-/* Delta Force Auto Redeem v3.3.8
- * Built v3.3.8 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.9
+ * Built v3.3.9 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -1127,7 +1127,11 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
       flash($('status'), 'Không lưu được: ' + errText(res), 'err');
       return false;
     }
-    flash($('status'), 'Đã lưu.', 'ok');
+    /* A new destination starts clean: the worker dropped the old status, so
+     * say so instead of leaving the user to wonder where the error went. */
+    flash($('status'), res.moved && form.enabled
+      ? 'Đã lưu nơi sao lưu mới, đã xoá trạng thái cũ. Bấm Kiểm tra kết nối để sao lưu thử.'
+      : 'Đã lưu.', 'ok');
     await load();
     return true;
   }

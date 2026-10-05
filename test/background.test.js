@@ -167,6 +167,38 @@ test('setSettings preserves an existing token when none is supplied', async () =
   assert(stored.syncBackend === 'rest', 'enabled should update');
 });
 
+test('setSettings to a new backup destination clears the old error everywhere', async () => {
+  const env = makeChrome();
+  loadWorker(env);
+  env.localBag.dfRedeemSettings = { syncBackend: 'rest', syncEndpoint: 'https://old.test/api', syncToken: 'keep-me' };
+  env.localBag.dfRedeemSyncStatus = { state: 'error', lastSyncAt: null, error: 'Failed to fetch' };
+  const res = await send(env, 'setSettings', { enabled: true, backend: 'rest', endpoint: 'https://new.test/api' });
+  assert(res.ok === true && res.moved === true, 'expected ok + moved, got ' + JSON.stringify(res));
+  assert(!JSON.stringify(res).includes('keep-me'), 'token leaked in the reply');
+  const stored = env.localBag.dfRedeemSyncStatus;
+  assert(stored.state === 'never-synced' && stored.error === null, 'stale error survived: ' + JSON.stringify(stored));
+  const status = await send(env, 'status');
+  assert(status.state === 'never-synced', 'status op still reports the old error: ' + JSON.stringify(status));
+});
+
+test('setSettings for the same destination keeps the current status', async () => {
+  const env = makeChrome();
+  loadWorker(env);
+  env.localBag.dfRedeemSettings = { syncBackend: 'rest', syncEndpoint: 'https://x.test/api', syncToken: 'keep-me', autoSyncMinutes: 0 };
+  env.localBag.dfRedeemSyncStatus = { state: 'ok', lastSyncAt: 10, error: null };
+  const res = await send(env, 'setSettings', { enabled: true, backend: 'rest', endpoint: 'https://x.test/api', autoSync: true });
+  assert(res.ok === true && res.moved === false, 'expected ok + not moved, got ' + JSON.stringify(res));
+  assert(env.localBag.dfRedeemSyncStatus.state === 'ok', 'unrelated save wiped the status');
+});
+
+test('status translates a stored English "Failed to fetch" into Vietnamese', async () => {
+  const env = makeChrome();
+  loadWorker(env);
+  env.localBag.dfRedeemSyncStatus = { state: 'error', lastSyncAt: null, error: 'Failed to fetch' };
+  const status = await send(env, 'status');
+  assert(/^Lỗi mạng/.test(status.error), 'expected Vietnamese, got ' + status.error);
+});
+
 test('setSettings overwrites the token when a new one is supplied', async () => {
   const env = makeChrome();
   loadWorker(env);

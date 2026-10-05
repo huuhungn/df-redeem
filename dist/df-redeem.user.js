@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Delta Force Auto Redeem (verified)
 // @namespace    local.df-redeem
-// @version      3.3.8
+// @version      3.3.9
 // @description  Đổi hàng loạt giftcode Delta Force, xác minh bằng phản hồi mạng thật, xuất CSV/JSON. Không gửi dữ liệu ra ngoài.
 // @author       local
 // @match        https://redeem.df.garena.sg/*
@@ -11,8 +11,8 @@
 // @grant        GM_deleteValue
 // @noframes
 // ==/UserScript==
-/* Delta Force Auto Redeem v3.3.8
- * Built v3.3.8 — local build, no remote source
+/* Delta Force Auto Redeem v3.3.9
+ * Built v3.3.9 — local build, no remote source
  *
  * Verifies every redeem against the network response body, never the popup.
  * No telemetry, no remote code, no credential access. Runs only on
@@ -1222,6 +1222,39 @@ const DFRedeemSync = (function attachSync(root) {
     return withoutToken;
   }
 
+  /* Where a backup goes. A status describes the destination that produced it,
+   * so a change to any of these makes the stored status stale. Endpoint and
+   * token only address a REST backend; the options form posts them for every
+   * backend, and editing an unused field must not void a Chrome-sync status. */
+  function destinationKey(settings) {
+    const safe = safeSettings(settings);
+    if (safe.syncBackend !== 'rest') return JSON.stringify([safe.syncBackend]);
+    return JSON.stringify([safe.syncBackend, String(safe.syncEndpoint || '').trim(), safe.syncToken]);
+  }
+
+  /* fetch() rejects with the browser's own English wording — "Failed to fetch"
+   * in Chrome, "NetworkError when attempting to fetch resource." in Firefox,
+   * "Load failed" in Safari — and that string reached the toast, the sync chip
+   * and the options page verbatim. Map the known transport failures to one
+   * Vietnamese sentence; every other message is already ours and passes
+   * through unchanged. */
+  const NETWORK_ERROR_TEXT = [
+    [/failed to fetch|networkerror when attempting to fetch|^(?:typeerror:\s*)?load failed$|network request failed|^(?:typeerror:\s*)?fetch failed$|net::err_|err_(?:name_not_resolved|connection_\w+|internet_disconnected|address_unreachable)/i,
+      'Lỗi mạng: không kết nối được máy chủ (mất Internet, sai địa chỉ hoặc máy chủ chặn truy cập).'],
+    [/^(?:aborterror|timeouterror)\b|user aborted|operation was aborted|signal is aborted|timed out/i,
+      'Máy chủ không phản hồi kịp (quá thời gian chờ).'],
+    [/unexpected token|is not valid json|unexpected end of json|json\.parse/i,
+      'Máy chủ trả về dữ liệu không đọc được (không phải JSON).'],
+    [/^(?:typeerror:\s*)?(?:invalid url|failed to construct 'url')/i,
+      'Địa chỉ máy chủ không hợp lệ.'],
+  ];
+  function friendlyError(error) {
+    if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return NETWORK_ERROR_TEXT[1][1];
+    const message = String(error && error.message || error || '');
+    for (const [pattern, text] of NETWORK_ERROR_TEXT) if (pattern.test(message)) return text;
+    return message;
+  }
+
   function serializeExport(data) {
     const input = data && typeof data === 'object' ? data : {};
     return JSON.stringify({
@@ -1430,6 +1463,14 @@ const DFRedeemSync = (function attachSync(root) {
       const backend = backends.get(backendName);
       if (!backend) return setStatus({ state: 'error', lastSyncAt: null, error: `Backend không tồn tại: ${backendName}` });
       const startedAt = clock();
+      const destination = destinationKey(settings);
+      /* A backup to the old destination that finishes after the user saved a
+       * new one must not paint its verdict over the new destination's status:
+       * that is exactly how a stale "Failed to fetch" outlived the fix. */
+      const settle = async (status) => {
+        const now = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+        return destinationKey(now[SETTINGS_KEY]) === destination ? setStatus(status) : status;
+      };
       await setStatus({ state: 'syncing', lastSyncAt: null, error: null });
       try {
         const localDelta = compactDelta(records);
@@ -1437,16 +1478,32 @@ const DFRedeemSync = (function attachSync(root) {
         const merged = mergeDeltas(localDelta, remoteDelta);
         await backend.push(settings, merged);
         await setLocal({ [SYNC_DELTA_KEY]: merged, [RECORDS_KEY]: deltaToRecords(merged) });
-        return setStatus({ state: 'ok', lastSyncAt: clock(), startedAt, error: null, recordCount: Object.keys(merged).length });
+        return settle({ state: 'ok', lastSyncAt: clock(), startedAt, error: null, recordCount: Object.keys(merged).length });
       } catch (error) {
-        const message = String(error && error.message || error).replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
-        return setStatus({ state: 'error', lastSyncAt: null, error: message });
+        const message = friendlyError(error).replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]');
+        return settle({ state: 'error', lastSyncAt: null, error: message });
       }
+    }
+
+    /* Persist new settings. Moving the backup elsewhere — another backend,
+     * endpoint or token, or switching it off and on — voids the stored status:
+     * an error (or an "ok") describes the destination that produced it, and
+     * leaving it up made the new destination look broken before it was even
+     * tried. Only a boolean leaves here; the destination key holds the token. */
+    async function saveSettings(next) {
+      const raw = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
+      const moved = destinationKey(raw[SETTINGS_KEY]) !== destinationKey(next);
+      await setLocal({ [SETTINGS_KEY]: next });
+      if (moved) await setStatus({ state: 'never-synced', lastSyncAt: null, error: null });
+      return { moved };
     }
 
     async function status() {
       const raw = await getLocal({ [STATUS_KEY]: { state: 'never-synced', lastSyncAt: null, error: null } });
-      return raw[STATUS_KEY];
+      const current = raw[STATUS_KEY];
+      /* Statuses written before errors were translated still hold the
+       * browser's English; translate them on the way out as well. */
+      return current && current.error ? { ...current, error: friendlyError(current.error) } : current;
     }
 
     /* Return the public settings needed by UI surfaces without exposing tokens. */
@@ -1498,7 +1555,7 @@ const DFRedeemSync = (function attachSync(root) {
         ]);
         return { ok: true, codes, presets, fetchedAt: clock() };
       } catch (error) {
-        return { ok: false, error: String(error && error.message || error), codes: [], presets: [] };
+        return { ok: false, error: friendlyError(error), codes: [], presets: [] };
       }
     }
 
@@ -1580,7 +1637,7 @@ const DFRedeemSync = (function attachSync(root) {
             .map((r) => `${r.code || '?'}: ${r.error || 'rejected'}`),
         };
       } catch (error) {
-        return { ok: false, sent: 0, failed: shareable.length, error: String(error && error.message || error) };
+        return { ok: false, sent: 0, failed: shareable.length, error: friendlyError(error) };
       }
     }
 
@@ -1620,7 +1677,7 @@ const DFRedeemSync = (function attachSync(root) {
         }
         return { ok: true, costs, count: Object.keys(costs).length };
       } catch (error) {
-        return { ok: false, error: String((error && error.message) || error), costs: {} };
+        return { ok: false, error: friendlyError(error), costs: {} };
       }
     }
 
@@ -1666,16 +1723,16 @@ const DFRedeemSync = (function attachSync(root) {
           unchanged: !!(doc && doc.unchanged),
         };
       } catch (error) {
-        return { ok: false, error: String((error && error.message) || error) };
+        return { ok: false, error: friendlyError(error) };
       }
     }
 
-    return { registerBackend, syncNow, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, fetchCosts, reportCost, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
+    return { registerBackend, syncNow, saveSettings, status, getSettings, getLocal, setLocal, compactDelta, mergeDeltas, serializeExport, parseImport, publicSettings, fetchCommunity, reportOutcomes, mergeCommunityCodes, fetchCosts, reportCost, keys: { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX } };
   }
 
   /* mergeCommunityCodes is pure, so expose it at module level too: UI surfaces
    * need it without constructing a storage-backed service. */
-  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
+  return { SETTINGS_KEY, RECORDS_KEY, STATUS_KEY, SYNC_DELTA_KEY, SYNC_MANIFEST_KEY, SYNC_CHUNK_PREFIX, DEFAULT_SETTINGS, compactDelta, mergeDeltas, deltaToRecords, publicSettings, friendlyError, destinationKey, serializeExport, parseImport, createSyncService, mergeCommunityCodes };
   };
 
   const api = factory();
@@ -3260,6 +3317,13 @@ function createPanel(options) {
   const V = root.DFRedeemVault;
   const G = root.DFRedeemGarena;   /* verdict labels + verdict→vault status map */
   const S = root.DFRedeemSync;     /* community merge helper; absent in bare tests */
+  /* The worker already translates the errors it reports, but a failure on this
+   * side of the bridge (the worker gone, a timeout, a page-side fetch) still
+   * arrives as the browser's English "Failed to fetch". One translator, the
+   * same one sync.js uses, so the toast, the chip and the options page agree. */
+  const describeError = (error) => (S && S.friendlyError
+    ? S.friendlyError(error)
+    : String((error && error.message) || error || ''));
 
   /* 25, not 50: the drawer is ~515px wide and a 50-row page ran ~2000px tall,
    * which meant constant scrolling to reach the pager. Halving the page keeps a
@@ -4080,10 +4144,10 @@ function createPanel(options) {
             const reply = await opts.sync.syncNow(await vault.all());
             const syncStatus = reply && reply.status ? reply.status : reply;
             setSyncChip(syncStatus);
-            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+            if (syncStatus && syncStatus.state === 'error') toast('Đồng bộ cá nhân lỗi: ' + (describeError(syncStatus.error) || 'không rõ'), 'err');
           }
         } catch (error) {
-          toast('Đồng bộ cá nhân lỗi: ' + (error && error.message || error), 'err');
+          toast('Đồng bộ cá nhân lỗi: ' + describeError(error), 'err');
         }
       }
       /* Public community synchronization is credential-free and deliberately
@@ -4091,7 +4155,7 @@ function createPanel(options) {
       if (opts.sync && vault && vault.all) {
         const community = await syncCommunityVault({ pull: true, push: true });
         if (community.pushed && !community.pushed.ok && !community.pushed.skipped) {
-          toast('Đồng bộ cộng đồng lỗi: ' + (community.pushed.error || 'không rõ'), 'err');
+          toast('Đồng bộ cộng đồng lỗi: ' + (describeError(community.pushed.error) || 'không rõ'), 'err');
         }
       }
       const start = $('[data-act="start"]');
@@ -4146,7 +4210,7 @@ function createPanel(options) {
       const syncStatus = reply && reply.status ? reply.status : reply;
       await setSyncChip(syncStatus);
       if (syncStatus && syncStatus.state === 'error') {
-        toast('Đồng bộ cá nhân lỗi: ' + (syncStatus.error || 'không rõ'), 'err');
+        toast('Đồng bộ cá nhân lỗi: ' + (describeError(syncStatus.error) || 'không rõ'), 'err');
       } else if (syncStatus && syncStatus.state === 'ok') {
         const n = Number.isFinite(syncStatus.recordCount) ? ` ${syncStatus.recordCount} mã` : '';
         toast('Đã đồng bộ' + n + '.', 'ok');
@@ -4154,7 +4218,7 @@ function createPanel(options) {
         toast('Chưa hoàn tất đồng bộ. Kiểm tra Cài đặt rồi thử lại.', 'warn');
       }
     } catch (error) {
-      const message = String(error && error.message || error);
+      const message = describeError(error);
       await setSyncChip({ state: 'error', error: message });
       toast('Đồng bộ cá nhân lỗi: ' + message, 'err');
     } finally {
@@ -5142,7 +5206,7 @@ function createPanel(options) {
         const after = $('.community-status');
         if (after) after.textContent = msg;
       } catch (error) {
-        const msg = 'Không tải được kho cộng đồng: ' + String(error && error.message || error);
+        const msg = 'Không tải được kho cộng đồng: ' + describeError(error);
         toast(msg, 'err');
         const after = $('.community-status');
         if (after) after.textContent = msg;
@@ -5164,7 +5228,7 @@ function createPanel(options) {
         const after = $('.community-status');
         if (after) after.textContent = msg;
       } catch (error) {
-        const msg = 'Không gửi được: ' + String(error && error.message || error);
+        const msg = 'Không gửi được: ' + describeError(error);
         toast(msg, 'err');
         const after = $('.community-status');
         if (after) after.textContent = msg;
@@ -5283,7 +5347,7 @@ function createPanel(options) {
       paintSync({
         state,
         label,
-        title: disabled ? 'Bật đồng bộ trong Cài đặt.' : (s && s.error ? String(s.error) : label),
+        title: disabled ? 'Bật đồng bộ trong Cài đặt.' : (s && s.error ? describeError(s.error) : label),
         hidden: false,
         disabled: disabled || state === 'syncing',
       });
@@ -5320,7 +5384,7 @@ function createPanel(options) {
     };
   })();
 
-  const panel = createPanel({ version: '3.3.8', target: 'userscript', store, sync });
+  const panel = createPanel({ version: '3.3.9', target: 'userscript', store, sync });
   root.__dfRedeemPanel = panel;
   panel.mountLauncher();
 }());

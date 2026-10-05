@@ -1801,6 +1801,46 @@ test('the sync chip follows the backup as it happens, not only at panel open', a
   assert(chip.className.split(/\s+/).includes('st-error'), 'the chip must carry the error state class');
 });
 
+test('a "Failed to fetch" backup shows Vietnamese in the toast and the sync chip', async () => {
+  /* fetch() rejects with the browser's English, and the panel pasted it into
+   * the toast and the chip tooltip as is. Both must read Vietnamese, whether
+   * the failure comes back as a status or is thrown on this side of the bridge. */
+  let state = { state: 'never-synced', lastSyncAt: null };
+  let mode = 'status';
+  const sync = {
+    status: async () => state,
+    getSettings: async () => ({ enabled: true, autoSync: true, backend: 'rest' }),
+    syncNow: async () => {
+      if (mode === 'throw') throw new TypeError('Failed to fetch');
+      state = { state: 'error', lastSyncAt: null, error: 'Failed to fetch' };
+      return { ok: false, status: state };
+    },
+  };
+  const host = dom.document.createElement('div');
+  const box = freshPanel();
+  const BV = box.__Vault;
+  const v = new BV.Vault({ adapter: new BV.MemoryAdapter() });
+  await v.init();
+  const p = box.__createPanel({ version: '3.0.0', target: 'test', vault: v, sync, toastHost: host });
+  await p.open();
+  const chip = p._shadow.querySelector('.sync-chip');
+  const btn = p._shadow.querySelector('[data-act="sync-now"]');
+
+  btn.click();
+  await until(() => /Lỗi đồng bộ/.test(chip.textContent), 'the chip must reach the error state');
+  await until(() => /Đồng bộ cá nhân lỗi/.test(host.textContent), 'the failure must be toasted');
+  assert(!/failed to fetch/i.test(host.textContent), 'English leaked into the toast: ' + host.textContent);
+  assert(/Lỗi mạng/.test(host.textContent), 'the toast must explain the network failure in Vietnamese: ' + host.textContent);
+  assert(/^Lỗi mạng/.test(chip.title), 'the chip tooltip must be Vietnamese, got: ' + chip.title);
+
+  host.textContent = '';
+  mode = 'throw';
+  await until(() => !btn.disabled, 'the button must be usable again after an error');
+  btn.click();
+  await until(() => /Đồng bộ cá nhân lỗi/.test(host.textContent), 'a thrown failure must be toasted');
+  assert(!/failed to fetch/i.test(host.textContent + chip.title), 'English leaked after a thrown failure');
+});
+
 test('Đồng bộ ngay backs the vault up on demand and the chip follows it', async () => {
   /* The only personal backup was the automatic one at the end of a run, so a
    * user who imported codes or fixed a failed sync had no way to push them

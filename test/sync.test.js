@@ -332,6 +332,111 @@ test('parseImport rejects malformed payloads', () => {
   assert.throws(() => svc.parseImport('null'), /không hợp lệ/);
 });
 
+/* --- destination changes and translated network errors ----------------- */
+test('friendlyError maps browser network failures to Vietnamese and leaves our own messages alone', () => {
+  const net = Sync.friendlyError(new TypeError('Failed to fetch'));
+  assert.ok(/^Lỗi mạng/.test(net), `expected Vietnamese, got: ${net}`);
+  for (const raw of ['NetworkError when attempting to fetch resource.', 'Load failed', 'fetch failed', 'net::ERR_NAME_NOT_RESOLVED']) {
+    assert.strictEqual(Sync.friendlyError(new TypeError(raw)), net, raw);
+  }
+  const abort = new Error('The user aborted a request.');
+  abort.name = 'AbortError';
+  assert.ok(/quá thời gian chờ/.test(Sync.friendlyError(abort)));
+  assert.ok(/JSON/.test(Sync.friendlyError(new SyntaxError('Unexpected token < in JSON at position 0'))));
+  assert.strictEqual(Sync.friendlyError(new Error('HTTP 503')), 'HTTP 503');
+  assert.strictEqual(Sync.friendlyError('Backend không tồn tại: x'), 'Backend không tồn tại: x');
+  assert.strictEqual(Sync.friendlyError(null), '');
+});
+
+test('a "Failed to fetch" sync failure is stored and reported in Vietnamese', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi, fetchFn: async () => { throw new TypeError('Failed to fetch'); } });
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'rest', syncEndpoint: 'https://down.example.test/df' } });
+  const status = await svc.syncNow([{ code: 'DFONE', status: 'success', timestamp: 1 }]);
+  assert.strictEqual(status.state, 'error');
+  assert.ok(!/failed to fetch/i.test(status.error), `English leaked: ${status.error}`);
+  assert.ok(/^Lỗi mạng/.test(chromeApi.storage.local.data[svc.keys.STATUS_KEY].error));
+});
+
+test('status() translates an English error stored by an older version', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  await svc.setLocal({ [svc.keys.STATUS_KEY]: { state: 'error', lastSyncAt: null, error: 'Failed to fetch' } });
+  const status = await svc.status();
+  assert.strictEqual(status.state, 'error');
+  assert.ok(/^Lỗi mạng/.test(status.error), status.error);
+});
+
+test('saving a new backup destination clears the old error status', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  await svc.setLocal({
+    [svc.keys.SETTINGS_KEY]: { syncBackend: 'rest', syncEndpoint: 'https://old.example.test/df', syncToken: 'OLDTOKEN' },
+    [svc.keys.STATUS_KEY]: { state: 'error', lastSyncAt: null, error: 'Failed to fetch' },
+  });
+  const result = await svc.saveSettings({ syncBackend: 'rest', syncEndpoint: 'https://new.example.test/df', syncToken: 'OLDTOKEN' });
+  assert.deepStrictEqual(result, { moved: true });
+  assert.deepStrictEqual(await svc.status(), { state: 'never-synced', lastSyncAt: null, error: null });
+  assert.strictEqual(chromeApi.storage.local.data[svc.keys.SETTINGS_KEY].syncEndpoint, 'https://new.example.test/df');
+});
+
+test('switching backend or token also counts as a new destination', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  const errored = { state: 'error', lastSyncAt: null, error: 'HTTP 401' };
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'rest', syncEndpoint: 'https://a.test/df', syncToken: 'A' }, [svc.keys.STATUS_KEY]: errored });
+  assert.strictEqual((await svc.saveSettings({ syncBackend: 'rest', syncEndpoint: 'https://a.test/df', syncToken: 'B' })).moved, true);
+  await svc.setLocal({ [svc.keys.STATUS_KEY]: errored });
+  assert.strictEqual((await svc.saveSettings({ syncBackend: 'chrome-sync', syncEndpoint: 'https://a.test/df', syncToken: 'B' })).moved, true);
+  assert.strictEqual((await svc.status()).state, 'never-synced');
+});
+
+test('saving the same destination keeps its status', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  const okStatus = { state: 'ok', lastSyncAt: 50, error: null, recordCount: 3 };
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'rest', syncEndpoint: 'https://a.test/df', syncToken: 'A', autoSyncMinutes: 0 }, [svc.keys.STATUS_KEY]: okStatus });
+  const result = await svc.saveSettings({ syncBackend: 'rest', syncEndpoint: ' https://a.test/df ', syncToken: 'A', autoSyncMinutes: 15 });
+  assert.deepStrictEqual(result, { moved: false });
+  assert.deepStrictEqual(await svc.status(), okStatus);
+});
+
+test('editing the unused endpoint while on chrome-sync keeps the chrome-sync status', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi });
+  const okStatus = { state: 'ok', lastSyncAt: 50, error: null };
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'chrome-sync', syncEndpoint: '' }, [svc.keys.STATUS_KEY]: okStatus });
+  assert.strictEqual((await svc.saveSettings({ syncBackend: 'chrome-sync', syncEndpoint: 'https://typed.test/df' })).moved, false);
+  assert.deepStrictEqual(await svc.status(), okStatus);
+});
+
+test('a sync to the old destination that finishes after a save cannot repaint its error', async () => {
+  const chromeApi = makeChrome();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const svc = Sync.createSyncService({
+    chromeApi,
+    fetchFn: async () => { await gate; throw new TypeError('Failed to fetch'); },
+  });
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { syncBackend: 'rest', syncEndpoint: 'https://old.example.test/df' } });
+  const inFlight = svc.syncNow([{ code: 'DFONE', status: 'success', timestamp: 1 }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  await svc.saveSettings({ syncBackend: 'rest', syncEndpoint: 'https://new.example.test/df' });
+  release();
+  const late = await inFlight;
+  assert.strictEqual(late.state, 'error', 'the caller still learns its own attempt failed');
+  assert.deepStrictEqual(await svc.status(), { state: 'never-synced', lastSyncAt: null, error: null });
+});
+
+test('community and cost network failures are translated too', async () => {
+  const chromeApi = makeChrome();
+  const svc = Sync.createSyncService({ chromeApi, fetchFn: async () => { throw new TypeError('Failed to fetch'); } });
+  await svc.setLocal({ [svc.keys.SETTINGS_KEY]: { communityDataUrl: 'https://community.example.test/codes.json' } });
+  const pull = await svc.fetchCommunity();
+  assert.strictEqual(pull.ok, false);
+  assert.ok(/^Lỗi mạng/.test(pull.error), pull.error);
+});
+
 /* --- runner ------------------------------------------------------------- */
 (async () => {
   for (const [name, fn] of TESTS) {

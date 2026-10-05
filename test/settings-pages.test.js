@@ -81,9 +81,13 @@ check('options never renders the token value back into the page',
 /* ── options behaviour against stubs ───────────────────────────────────── */
 function el(id) {
   const listeners = {};
+  let text = '';
   return {
-    id, hidden: false, disabled: false, checked: false, value: '', placeholder: '', textContent: '', className: '',
+    id, hidden: false, disabled: false, checked: false, value: '', placeholder: '', className: '',
     dataset: {}, title: '', children: [],
+    /* As in the DOM, assigning textContent replaces every child node. */
+    get textContent() { return text; },
+    set textContent(value) { text = value; this.children = []; },
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     async fire(type) { for (const fn of listeners[type] || []) await fn({ preventDefault() {} }); },
     appendChild(child) { this.children.push(child); return child; },
@@ -93,11 +97,12 @@ function el(id) {
   };
 }
 
-async function runOptions(settings, vaultRows) {
+async function runOptions(settings, vaultRows, initialStatus) {
   const nodes = new Map([...optIds].map((id) => [id, el(id)]));
   const radios = ['chrome-sync', 'rest'].map((value) => Object.assign(el('radio-' + value), { value }));
   const downloads = [];
   const asked = [];
+  let status = initialStatus || { state: 'ok', lastSyncAt: '2026-10-02T03:04:00.000Z', recordCount: 7 };
   const tick = () => new Promise((r) => setImmediate(r));
   const document = {
     documentElement: { scrollHeight: 1000 },
@@ -112,8 +117,14 @@ async function runOptions(settings, vaultRows) {
       async sendMessage(msg) {
         asked.push(msg.op);
         if (msg.op === 'getSettings') return settings;
-        if (msg.op === 'status') return { state: 'ok', lastSyncAt: '2026-10-02T03:04:00.000Z', recordCount: 7 };
-        if (msg.op === 'setSettings') { Object.assign(settings, msg.payload, { hasToken: Boolean(msg.payload.token) || settings.hasToken }); return { ok: true }; }
+        if (msg.op === 'status') return status;
+        if (msg.op === 'setSettings') {
+          /* Mirrors the worker: a new destination drops the old status. */
+          const moved = msg.payload.backend !== settings.backend || msg.payload.endpoint !== settings.endpoint || Boolean(msg.payload.token);
+          Object.assign(settings, msg.payload, { hasToken: Boolean(msg.payload.token) || settings.hasToken });
+          if (moved) status = { state: 'never-synced', lastSyncAt: null, error: null };
+          return { ok: true, moved };
+        }
         if (msg.op === 'wipe') return { ok: true };
         if (msg.op === 'export') throw new Error('options must not export the Chrome Sync blob');
         return { ok: false, error: 'unexpected ' + msg.op };
@@ -210,6 +221,21 @@ async function runOptions(settings, vaultRows) {
   check('test saves unsaved edits first, then tests the stored settings',
     tail.indexOf('setSettings') !== -1 && tail.indexOf('test') > tail.indexOf('setSettings'), tail.join(','));
   check('saved endpoint is the edited one', on.settings.endpoint === 'https://vault.test/v2', on.settings.endpoint);
+
+  const broken = await runOptions({ enabled: true, backend: 'rest', endpoint: 'https://old.test/api', autoSync: true, hasToken: false }, rows,
+    { state: 'error', lastSyncAt: null, error: 'Lỗi mạng: không kết nối được máy chủ (mất Internet, sai địa chỉ hoặc máy chủ chặn truy cập).' });
+  check('a failed backup shows the Vietnamese error on the badge',
+    broken.nodes.get('sync-badge').dataset.state === 'error' && /Lỗi mạng/.test(JSON.stringify(broken.nodes.get('sync-meta').children.map((c) => c.textContent))));
+  broken.nodes.get('endpoint').value = 'https://new.test/api';
+  await broken.nodes.get('endpoint').fire('input');
+  await broken.nodes.get('save').fire('click');
+  for (let i = 0; i < 10; i += 1) await broken.tick();
+  check('saving a new destination clears the old error from the badge',
+    broken.nodes.get('sync-badge').dataset.state === 'never-synced' && broken.nodes.get('sync-meta').children.length === 0,
+    broken.nodes.get('sync-badge').dataset.state);
+  check('saving a new destination says the old status was cleared',
+    /xoá trạng thái cũ/.test(broken.nodes.get('status').textContent) && broken.nodes.get('status').dataset.tone === 'ok',
+    broken.nodes.get('status').textContent);
 
   await on.nodes.get('wipe').fire('click');
   for (let i = 0; i < 10; i += 1) await on.tick();
