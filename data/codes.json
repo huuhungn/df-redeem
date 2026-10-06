@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updated_at": "2026-10-06T09:09:40.560Z",
+  "updated_at": "2026-10-06T20:01:47.839Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
-    "success": 233,
-    "expired": 87,
-    "gift_bug": 14
+    "success": 238,
+    "expired": 90,
+    "gift_bug": 15
   },
   "codes": [
     {
@@ -91,6 +91,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-10-03"
+    },
+    {
+      "code": "Bd52XmxYj2DFGCqnq4",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-10-06"
     },
     {
       "code": "C7S2X9J5D4B1V3Q",
@@ -336,6 +343,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFCATALYST87",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-10-06"
     },
     {
       "code": "DFCC0001",
@@ -798,6 +812,13 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
+    },
+    {
+      "code": "DFOSS260404857",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 1,
+      "last_checked": "2026-10-06"
     },
     {
       "code": "DFOSS260404B47",
@@ -1466,10 +1487,10 @@
     },
     {
       "code": "DFUTS26QL3101C38",
-      "status": "success",
-      "err_code": 0,
+      "status": "gift_bug",
+      "err_code": 400073,
       "confirmations": 1,
-      "last_checked": "2026-09-25"
+      "last_checked": "2026-10-06"
     },
     {
       "code": "DFUTS26QL3101C64",
@@ -1640,6 +1661,48 @@
       "last_checked": "2026-09-25"
     },
     {
+      "code": "DFVNHackclaw1",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 1,
+      "last_checked": "2026-10-06"
+    },
+    {
+      "code": "DFVNNox5",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 1,
+      "last_checked": "2026-10-06"
+    },
+    {
+      "code": "DFVNSineva6",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 1,
+      "last_checked": "2026-10-06"
+    },
+    {
+      "code": "DFVNToxik4",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-10-06"
+    },
+    {
+      "code": "DFVNUluru3",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-10-06"
+    },
+    {
+      "code": "DFVNVyron2",
+      "status": "success",
+      "err_code": 0,
+      "confirmations": 2,
+      "last_checked": "2026-10-06"
+    },
+    {
       "code": "DFvoyage901",
       "status": "success",
       "err_code": 0,
@@ -1739,10 +1802,10 @@
     },
     {
       "code": "f2X6e3xY3pJDCE5rT7P",
-      "status": "success",
-      "err_code": 0,
+      "status": "expired",
+      "err_code": 400068,
       "confirmations": 1,
-      "last_checked": "2026-09-25"
+      "last_checked": "2026-10-06"
     },
     {
       "code": "fvzeLrxYajwVviFSTSZ",
@@ -1872,10 +1935,10 @@
     },
     {
       "code": "hjRtrKxYLmcTyYcEy64H",
-      "status": "success",
-      "err_code": 0,
+      "status": "expired",
+      "err_code": 400068,
       "confirmations": 1,
-      "last_checked": "2026-09-25"
+      "last_checked": "2026-10-06"
     },
     {
       "code": "JGHMCmxYa6PLcFgvD9mg",
@@ -2341,10 +2404,10 @@
     },
     {
       "code": "yWHtfsxYGRPaZvAfLN82",
-      "status": "success",
-      "err_code": 0,
+      "status": "expired",
+      "err_code": 400068,
       "confirmations": 1,
-      "last_checked": "2026-09-25"
+      "last_checked": "2026-10-06"
     }
   ]
 }
