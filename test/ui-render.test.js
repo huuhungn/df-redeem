@@ -274,6 +274,12 @@ vm.runInContext(`${body}\n globalThis.__createPanel = createPanel; globalThis.__
  * failure — exactly the wrong reflex for a data-quality suite. */
 const SEED_PRESET_ROWS = (sandbox.__SEED && sandbox.__SEED.presets) || [];
 const SEED_PRESETS = SEED_PRESET_ROWS.length;
+/* The seed's success/mine rows are the author's own redemptions; a fresh
+ * install imports them as untried, so the player can redeem them too. Dead
+ * verdicts (expired, gift_bug) are true for every account and stay shareable. */
+const SEED_GIFT_ROWS = ((sandbox.__SEED && sandbox.__SEED.codes) || []).filter((r) => r.kind !== 'preset');
+const SEED_REDEEMABLE = SEED_GIFT_ROWS.filter((r) => r.status === 'success' || r.status === 'mine').length;
+const SEED_SHAREABLE = SEED_GIFT_ROWS.filter((r) => r.status === 'expired' || r.status === 'gift_bug').length;
 
 /* Poll for a condition the panel reaches asynchronously. */
 async function until(fn, msg, ms = 1000) {
@@ -316,7 +322,9 @@ test('open() renders dashboard with real numbers', async () => {
   const sd = panel._shadow;
   const kpis = sd.querySelectorAll('.kpi b').map((n) => Number(n.textContent));
   assert(kpis.length === 4, 'expected 4 KPI tiles, got ' + kpis.length);
-  assert(kpis[0] > 100, 'success KPI should be >100, got ' + kpis[0]);
+  assert(SEED_REDEEMABLE > 100, 'the seed should ship >100 redeemable codes, got ' + SEED_REDEEMABLE);
+  assert(kpis[0] === 0, 'a fresh install has redeemed nothing yet, success KPI got ' + kpis[0]);
+  assert(kpis[2] === SEED_REDEEMABLE, `untried KPI should be ${SEED_REDEEMABLE}, got ` + kpis[2]);
   assert(kpis[3] === SEED_PRESETS, `preset KPI should be ${SEED_PRESETS}, got ` + kpis[3]);
   const bars = sd.querySelectorAll('.bar-row');
   /* 9 = the 7 original statuses plus `group_limit` and `sys_error`, which were
@@ -335,9 +343,9 @@ test('library paginates at 25 rows and filters by status', async () => {
   const pager = sd.querySelector('.pager span').textContent;
   assert(/Trang 1\//.test(pager), 'pager text wrong: ' + pager);
 
-  /* Own the untried fixtures: the shipped seed legitimately reaches 0 untried
-   * gift codes once every code has been redeemed, so this filter assertion must
-   * not lean on seed data that real redemption runs mutate. */
+  /* Own the untried fixtures: the shipped seed queues its redeemable codes as
+   * untried, and real redemption runs mutate that count, so this filter
+   * assertion narrows to its own rows with the search box first. */
   await vault.upsert({ code: 'UITESTUNTRIED1', kind: 'gift', status: 'untried', source: 'ui-test' });
   await vault.upsert({ code: 'UITESTUNTRIED2', kind: 'gift', status: 'untried', source: 'ui-test' });
   await vault.upsert({ code: 'UITESTUNTRIED3', kind: 'gift', status: 'untried', source: 'ui-test' });
@@ -351,6 +359,9 @@ test('library paginates at 25 rows and filters by status', async () => {
     .find((b) => b.dataset.k === 'untried');
   assert(chip, 'untried chip missing');
   chip.dispatchEvent(dom.makeEvent('click', chip));
+  const search = sd.querySelector('.fq');
+  search.value = 'UITESTUNTRIED';
+  search.dispatchEvent(dom.makeEvent('input', search));
   rows = sd.querySelectorAll('tbody tr');
   assert(rows.length === 3, 'expected 3 untried rows, got ' + rows.length);
   const codes = rows.map((r) => r.querySelector('.mono').textContent.trim());
@@ -374,7 +385,7 @@ test('run view renders queue controls', async () => {
   assert(sd.querySelector('.pace').value === '1200', 'pace default wrong');
   assert(sd.querySelector('[data-act="start"]'), 'missing start button');
   const pick = sd.querySelector('[data-act="q-untried"]');
-  assert(/\(3\)/.test(pick.textContent), 'untried count not shown: ' + pick.textContent);
+  assert(pick.textContent.includes(`(${SEED_REDEEMABLE + 3})`), 'untried count not shown: ' + pick.textContent);
 });
 
 test('presets view groups by weapon class and warns about in-game activation', async () => {
@@ -608,7 +619,7 @@ test('share view separates gift codes from presets', async () => {
   const sd = panel._shadow;
   const gift = sd.querySelector('.share-gift').value.split('\n').filter(Boolean);
   const pre = sd.querySelector('.share-preset').value.split('\n').filter(Boolean);
-  assert(gift.length > 150, 'expected >150 shareable gift codes, got ' + gift.length);
+  assert(gift.length === SEED_SHAREABLE, `expected ${SEED_SHAREABLE} shareable gift codes, got ` + gift.length);
   assert(pre.length === SEED_PRESETS, `expected ${SEED_PRESETS} preset lines, got ` + pre.length);
   assert(!gift.some((l) => l.includes('-')), 'gift list must not contain preset triples');
   assert(pre.every((l) => l.split('-').length >= 3), 'preset lines must be Name-Mode-Code');
