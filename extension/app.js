@@ -1562,6 +1562,22 @@ const DFRedeemSync = (function attachSync(root) {
         row && row.code && SHAREABLE_OUTCOMES.get(Number(row.err_code)) === String(row.status || ''),
       );
       if (!shareable.length) return { ok: true, sent: 0, skipped: 'nothing-shareable' };
+      /* Report the spelling Garena actually accepted. When the queued spelling
+       * was rejected and an OCR variant redeemed, the vault keeps the variant as
+       * `variant_used` on the queued row; publishing the queued spelling put a
+       * misread (DFOSS260404857 for DFOSS260404B57) on the public list as a
+       * success. The queued row and a row for the variant itself describe one
+       * redemption, so collapse them and keep the most recent attempt. */
+      const outcomes = new Map();
+      for (const row of shareable) {
+        const code = String(row.variant_used || row.code).trim();
+        const key = canonicalCode(code);
+        if (!key) continue;
+        const previous = outcomes.get(key);
+        if (previous && String(previous.row.last_tried || '') >= String(row.last_tried || '')) continue;
+        outcomes.set(key, { code, row });
+      }
+      const reports = [...outcomes.values()];
 
       /* One request for the whole set. Reporting row-by-row exhausted the broker's
        * hourly quota and could not finish inside the drawer's bridge timeout, so a
@@ -1572,7 +1588,7 @@ const DFRedeemSync = (function attachSync(root) {
        * POST a batch body to an endpoint that expects one row. */
       const batchEndpoint = /\/submit$/.test(endpoint) ? endpoint.replace(/\/submit$/, '/submit-batch') : null;
       if (!batchEndpoint) {
-        return { ok: false, sent: 0, failed: shareable.length, error: 'endpoint phải kết thúc bằng /submit' };
+        return { ok: false, sent: 0, failed: reports.length, error: 'endpoint phải kết thúc bằng /submit' };
       }
       try {
         const response = await fetchFn(batchEndpoint, {
@@ -1584,8 +1600,8 @@ const DFRedeemSync = (function attachSync(root) {
            * the verdict itself, and the id is random per install, not an identity. */
           body: JSON.stringify({
             install_id: await installId(),
-            rows: shareable.map((row) => ({
-              code: String(row.code).trim(),
+            rows: reports.map(({ code, row }) => ({
+              code,
               err_code: Number(row.err_code || 0),
             })),
           }),
@@ -1609,7 +1625,7 @@ const DFRedeemSync = (function attachSync(root) {
           return {
             ok: false,
             sent: 0,
-            failed: shareable.length,
+            failed: reports.length,
             error: detail ? `${detail} [HTTP ${status}]` : `HTTP ${status}`,
             retriable: status === 429 || status === 503,
           };
@@ -1626,7 +1642,7 @@ const DFRedeemSync = (function attachSync(root) {
             .map((r) => `${r.code || '?'}: ${r.error || 'rejected'}`),
         };
       } catch (error) {
-        return { ok: false, sent: 0, failed: shareable.length, error: friendlyError(error) };
+        return { ok: false, sent: 0, failed: reports.length, error: friendlyError(error) };
       }
     }
 
