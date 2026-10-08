@@ -1,9 +1,9 @@
 {
   "version": 3,
-  "updated_at": "2026-10-06T20:01:47.839Z",
+  "updated_at": "2026-10-08T03:10:12.610Z",
   "note": "Gift-code verdicts confirmed by extension clients. Automated: see .github/workflows/sync-codes.yml",
   "counts": {
-    "success": 238,
+    "success": 237,
     "expired": 90,
     "gift_bug": 15
   },
@@ -812,13 +812,6 @@
       "err_code": 0,
       "confirmations": 1,
       "last_checked": "2026-09-25"
-    },
-    {
-      "code": "DFOSS260404857",
-      "status": "success",
-      "err_code": 0,
-      "confirmations": 1,
-      "last_checked": "2026-10-06"
     },
     {
       "code": "DFOSS260404B47",
