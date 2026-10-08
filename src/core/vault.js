@@ -554,9 +554,56 @@ var DFRedeemVault = (function dfRedeemVaultModule(root) {
         if (!missing.length) return { imported: 0, skipped: true };
         return this.importRecords(missing);
       }
-      const result = await this.importJSON(seed);
+      const prepared = await this.seedForThisInstall(seed);
+      const result = await this.importJSON(prepared.seed);
+      /* upsert keeps a stored spelling, but Garena matches case-sensitively and
+       * the seed carries the spelling it accepted. Correct rows this player
+       * never tried; a spelling they redeemed with stays theirs. */
+      for (const { key, code } of prepared.respell) {
+        const row = await this.adapter.get(STORES.codes, key);
+        if (row && row.code !== code) await this.adapter.put(STORES.codes, { ...row, code });
+      }
       await this.adapter.put(STORES.meta, { key: 'seed_version', value: target, imported_at: this.clock() });
       return result;
+    }
+
+    /* The seed is a snapshot of the author's own vault. `success` and `mine`
+     * are facts about the author's account, not this player's: shipping them
+     * as-is leaves a fresh install with an empty "untried" queue although every
+     * one of those codes is still redeemable here. Dead verdicts (expired,
+     * gift_bug, ...) are facts about the code and carry over unchanged.
+     *
+     * A version bump re-imports through upsert, which must never rewrite a
+     * verdict the player observed first-hand: a code with an attempt in this
+     * install's history, or a row whose last_tried is newer than the seed's own
+     * observation of that code (a restored backup carries no history). Such a
+     * row keeps its history whole and only the non-history fields refresh. */
+    async seedForThisInstall(seed) {
+      const existing = new Map((await this.adapter.getAll(STORES.codes))
+        .filter((row) => row.kind === 'giftcode')
+        .map((row) => [row.key, row]));
+      const attempted = new Set((await this.adapter.getAll(STORES.results))
+        .map((row) => row && row.code_key).filter(Boolean));
+      const respell = [];
+      const codes = (Array.isArray(seed.codes) ? seed.codes : []).map((row) => {
+        if (!row || isPresetInput(row)) return row;
+        const authorOnly = row.status === 'success' || row.status === 'mine';
+        const local = authorOnly
+          ? { ...row, status: 'untried', err_code: 0, result_msg: '', attempt_count: 0, last_tried: '', variant_used: '' }
+          : row;
+        const key = `gift:${Schema.normalizeCode(row.code, 'giftcode').toUpperCase()}`;
+        const current = existing.get(key);
+        const observedHere = current && (attempted.has(key) || (current.last_tried
+          && String(current.last_tried) > String(row.last_tried || '')));
+        if (!observedHere) {
+          if (current && current.code !== String(row.code).trim()) respell.push({ key, code: String(row.code).trim() });
+          return local;
+        }
+        const kept = { ...local };
+        for (const field of HISTORY_FIELDS) delete kept[field];
+        return kept;
+      });
+      return { seed: { ...seed, codes }, respell };
     }
 
     async upsert(raw, options) {
